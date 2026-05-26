@@ -1,0 +1,32 @@
+data/
+venv/
+
+# Junk
+.ipynb_checkpoints/
+.jupyter_ystore.db
+.jupyterlab*
+.neptune
+.snakemake
+wandb
+slurm-*.out
+*.DS_Store
+.vscode/
+*.pkl
+*.npy
+
+__pycache__
+
+# Models and checkpoints
+checkpoint-*
+
+# Plots
+*.pdf
+*.csv
+*.csv.gz
+*.tsv
+
+# Tutorials
+*.mp4
+*.webm
+
+.Rproj.user
