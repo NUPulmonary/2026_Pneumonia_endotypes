@@ -19,7 +19,7 @@ CLINICAL = DATA / '04_external.csv.gz'
 CLINICAL_LABELS = DATA / '01_ehr_labels_v4.csv'
 SC_LABELS = DATA / '01_sc_labels_v4.csv'
 ANON_IDS = DATA / '00_metadata/serniczek_anon_ids.csv'
-EHRFORMER_BINS = DATA / '06_ehrformer/01_ehr_binned_v2.pickle'
+EHRFORMER_BINS = DATA / '01_ehrformer/01_ehr_binned_v2.pickle'
 
 
 _sc_root = DATA / '02b_integration'
