@@ -1,0 +1,221 @@
+import sys
+sys.path.insert(0, '../lib')
+
+import os
+import pickle
+import numpy as np
+import torch
+import pandas as pd
+import common_data
+
+from datasets import Dataset
+from transformers import BertConfig, BertForMaskedLM, TrainingArguments, Trainer
+
+
+# Pretraining on all data disregarding splits to perform perturbation analysis
+
+#torch.manual_seed(42)
+#torch.cuda.manual_seed_all(42)
+
+# TORCH MISC
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+BATCH_SIZE = 512
+
+# DATA MISC
+NB_OF_BINS = 4 + 1 # Number of bins into which data values were binned (4) + 1 for NA
+IS_NA_BIN_NAME = 'binis_na' # Name of the column for NA bin, this changed because of quartile binning
+IS_NA_BIN_TOKEN = NB_OF_BINS + 2 - 1
+
+# PATH MISC
+PATOGENE_LABELS_PATH = common_data.CLINICAL_LABELS
+EHRFORMER_SAVING_PATH = '../data/01_ehrformer/models/pretrained/'
+
+
+# TOKEN_MISC
+CLS_TOKEN = 0
+MASK_TOKEN = 1
+
+
+# MODELS MISC
+FREEZE_FIRST_ENCODER_LAYERS = 1
+SAVE_BASE_MODEL = True
+TRAIN_BASE = True
+MASK_PROB = 0.15
+# TRAIN_FINETUNNED = False
+
+RAND = torch.Generator().manual_seed(9102730192)
+
+
+
+EHR_FILE_PATH = common_data.EHRFORMER_BINS
+
+with open(EHR_FILE_PATH, 'rb') as pickle_handle:
+    ehr_df = pickle.load(pickle_handle)
+
+NB_OF_DATA_COLUMNS = len(ehr_df.columns) // 5
+
+labels_df = pd.read_csv(PATOGENE_LABELS_PATH)
+
+ehr_bins = [
+    [
+        column_name[1]
+        for column_name, column_value in zip(ehr_df.columns, row_)
+        if column_value
+    ]
+    for row_nb, row_ in ehr_df.iterrows()
+]
+
+VOCAB = {
+    "CLS": CLS_TOKEN,
+    "MASK": MASK_TOKEN,
+    **{
+        f'bin{ind_}': ind_ + 2 for ind_ in range(NB_OF_BINS - 1)
+    },
+    IS_NA_BIN_NAME: IS_NA_BIN_TOKEN
+}
+
+ehr_row_tokens_train = [
+    [VOCAB[token] for token in ehr_row]
+    for ehr_row in ehr_bins
+]
+l = Dataset.from_dict({'input_ids': ehr_row_tokens_train})
+ehr_row_dataset_train_list = l
+
+
+class EHRMaskedLMFormerDataCollator:
+    def __init__(
+        self,
+        cls_token=CLS_TOKEN,
+        mask_token=MASK_TOKEN,
+        mask_prob=MASK_PROB,
+    ):
+        self.cls_token = cls_token
+        self.mask_token = mask_token
+        self.mask_prob = mask_prob
+
+    def __call__(self, ehrs):
+        tokens = torch.tensor([
+            [self.cls_token] + ehr_row['input_ids']
+            for ehr_row in ehrs
+        ])
+        masks = []
+        for ehr_row in ehrs:
+            input_ids = ehr_row['input_ids']
+            # Initialize a mask with zeros, +1 for class token
+            mask = torch.zeros(len(input_ids) + 1, dtype=torch.bool)
+            # shift the start of the masking to the second index to account for adding the class token
+            for i in range(1, len(input_ids) + 1):
+                token_id = input_ids[i - 1]
+                # do not mask class token, do not mask NA
+                if token_id == CLS_TOKEN or token_id == IS_NA_BIN_TOKEN:
+                    continue
+                if torch.rand(1, generator=RAND) < self.mask_prob:
+                    mask[i] = 1
+                else:
+                    mask[i] = 0
+            masks.append(mask)
+
+        masks = torch.stack(masks)
+
+        labels = tokens.clone()
+
+        tokens[masks] = self.mask_token
+        # Replace unmasked indices with -100 in the labels since we only compute loss on masked tokens
+        # from https://github.com/huggingface/transformers/blob/93aafdc620d39b9ec714ffecf015a085ea221282/src/transformers/data/data_collator.py#L749C9-L749C103
+        labels[torch.logical_not(masks)] = -100
+        return {'input_ids': tokens, 'labels': labels}
+
+
+
+# model type
+model_type = "bert"
+# max input size
+max_input_size = 1 + NB_OF_DATA_COLUMNS  # + CLS Token
+# number of layers
+num_layers = 4
+# number of attention heads
+num_attn_heads = 4
+# number of embedding dimensions
+num_embed_dim = 64
+# intermediate size
+intermed_size = num_embed_dim * 2
+# activation function
+activ_fn = "relu"
+# initializer range, layer norm, dropout
+initializer_range = 0.02
+layer_norm_eps = 1e-12
+attention_probs_dropout_prob = 0.2
+hidden_dropout_prob = 0.2
+
+
+masked_lm_config_dict = {
+    "hidden_size": num_embed_dim,
+    "num_hidden_layers": num_layers,
+    "initializer_range": initializer_range,
+    "layer_norm_eps": layer_norm_eps,
+    "attention_probs_dropout_prob": attention_probs_dropout_prob,
+    "hidden_dropout_prob": hidden_dropout_prob,
+    "intermediate_size": intermed_size,
+    "hidden_act": activ_fn,
+    "max_position_embeddings": max_input_size,
+    "model_type": model_type,
+    "num_attention_heads": num_attn_heads,
+    "pad_token_id": None,
+    "vocab_size": len(VOCAB)  # genes+2 for <mask> and <pad> tokens
+}
+
+masked_lm_config = BertConfig(**masked_lm_config_dict)
+
+
+ehr_former = BertForMaskedLM(masked_lm_config)
+ehr_former.train()
+
+masked_lm_training_args_dict = {
+    "learning_rate": 5e-5,
+    "do_train": True,
+    "do_eval": False,
+    "save_strategy": "epoch",
+    "report_to": "none",
+    "logging_steps": 5,
+    "evaluation_strategy": "no",
+    "group_by_length": True,
+    "length_column_name": "length",
+    "disable_tqdm": False,
+    "lr_scheduler_type": 'linear',
+    "warmup_steps": 10,
+    "weight_decay": 0.001,
+    "per_device_train_batch_size": BATCH_SIZE,
+    "num_train_epochs": 300,
+    "output_dir": './model_output_1',
+}
+
+masked_lm_training_args = TrainingArguments(**masked_lm_training_args_dict)
+
+if os.path.exists(EHRFORMER_SAVING_PATH + 'global'):
+    print('-' * 50)
+    print(f'[!] Model for global exists, not retraining')
+    print('-' * 50)
+    print('')
+    sys.exit(1)
+
+print('-' * 50)
+print(f'[!] Starting on global')
+print('-' * 50)
+print('')
+
+data_collator = EHRMaskedLMFormerDataCollator()
+
+masked_lm_trainer = Trainer(
+    model=ehr_former,
+    args=masked_lm_training_args,
+    train_dataset=ehr_row_dataset_train_list,
+    data_collator=data_collator,
+)
+
+if TRAIN_BASE:
+    masked_lm_trainer.train()
+
+if SAVE_BASE_MODEL:
+    masked_lm_trainer.save_model(EHRFORMER_SAVING_PATH + 'global')
+    processed_data = data_collator(ehr_row_dataset_train_list) # save the mask tensor???
+    torch.save(processed_data, EHRFORMER_SAVING_PATH + 'mask_tensor/global.pt')
