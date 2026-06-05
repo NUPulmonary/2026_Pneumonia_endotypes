@@ -1,0 +1,57 @@
+import sys
+sys.path.insert(0, "../lib")
+
+DATA_DIR = "../data/02b_integration"
+
+rule all:
+    input:
+        f"{DATA_DIR}/cellbrowser/07c_1000_10-1.tar.gz",
+        f"{DATA_DIR}/cellbrowser/08_rc1.tar.gz",
+        f"{DATA_DIR}/cellbrowser/08_rc1_export.tar.gz",
+        f"{DATA_DIR}/cellbrowser/09_downsampled.tar.gz",
+
+rule cellbrowser:
+    input:
+        h5ad="{dir}/{sample}/{sample}.h5ad",
+        meta="{dir}/{sample}/{sample}-metadata.csv",
+        markers="{dir}/{sample}/{sample}-markers.csv",
+    output: "{dir}/cellbrowser/{sample}.tar.gz"
+    params:
+        slurm__account="b1042",
+        slurm__partition="genomics",
+        slurm__hours=12,
+        slurm__cores=8,
+        slurm__mem=200,
+    shell:
+        """
+        h5=`realpath {input.h5ad}`
+        out_file=`realpath {output}`
+        base_dir=`dirname $out_file`
+
+        meta=`realpath "{input.meta}"`
+        meta_file=`basename $meta`
+        markers=`realpath "{input.markers}"`
+        markers_file=`basename $markers`
+
+        mkdir -p $base_dir
+        fname=`basename {output}`
+        out=${{fname%.tar.gz}}
+        out_dir="$base_dir/$out"
+        rm -rf "$out_dir"
+        cbImportScanpy -i $h5 -o $out_dir
+
+        echo "Sedding"
+        sed -i 's/louvain/leiden/g' "$out_dir/cellbrowser.conf"
+        sed -i 's/#radius=2/radius=2/' "$out_dir/cellbrowser.conf"
+        sed -i "s/meta.tsv/$meta_file/" "$out_dir/cellbrowser.conf"
+
+        echo -e "\ndisplay_single_meta=True" >> "$out_dir/cellbrowser.conf"
+        echo -e "\nmarkers = [{{\\"file\\": \\"$markers_file\\", \\"shortLabel\\":\\"Cluster Markers\\"}}]\n" \
+            >> "$out_dir/cellbrowser.conf"
+
+        cp "$meta" "$markers" $out_dir
+
+        echo "Tarring to ${{out}}.tar.gz"
+        tar -czf {output} $out_dir
+        rm -rf $out_dir
+        """

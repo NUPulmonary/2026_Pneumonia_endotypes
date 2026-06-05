@@ -24,6 +24,7 @@ EHRFORMER_BINS = DATA / '01_ehrformer/01_ehr_binned_v2.pickle'
 
 _sc_root = DATA / '02b_integration'
 SC_LIBRARIES = _sc_root / '00_list-of-libraries.csv'
+SC_CELLRANGER = _sc_root / 'cellranger_outputs'
 SC_RAW = _sc_root / '09_raw/09_raw.h5ad'
 SC_NORM = _sc_root / '09_final_full-1/09_final_full-1.h5ad'
 SC_META = _sc_root / '09_final_full-1/09_final_full-1-metadata.csv'
