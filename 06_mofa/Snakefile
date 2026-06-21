@@ -1,0 +1,47 @@
+import os
+import sys
+import pathlib
+
+import pandas as pd
+
+
+ROOT = pathlib.Path(os.getcwd()).parent
+BASE = ROOT / '06_mofa/04_mofa_gsea'
+
+
+rule all:
+    input:
+        [p.parent / p.name.replace('loading', 'gsea') for p in BASE.glob('**/factor_*_loading.csv')]
+
+
+rule gsea:
+    input: '{dir}/factor_{f}_loading.csv'
+    output: '{dir}/factor_{f}_gsea.csv'
+    params:
+        slurm__account='p31841',
+        slurm__partition='normal',
+        slurm__hours=24,
+        slurm__cores=32,
+        slurm__mem=10,
+    run:
+        import os
+        import sys
+        import decoupler
+        import pandas as pd
+
+        msigdb = decoupler.get_resource('MSigDB', organism='human')
+        hallmark = msigdb[msigdb.collection.eq('hallmark')]
+        hallmark = hallmark[~hallmark.duplicated(['geneset', 'genesymbol'])]
+
+        degs = pd.read_csv(input[0], index_col=0)
+
+        enriched = decoupler.get_gsea_df(
+            df=degs,
+            stat='loading',
+            net=hallmark,
+            source='geneset',
+            target='genesymbol',
+            times=10_000_000,
+            seed=1066
+        )
+        enriched.to_csv(output[0])
