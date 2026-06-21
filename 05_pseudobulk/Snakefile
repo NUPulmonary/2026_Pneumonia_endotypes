@@ -1,0 +1,247 @@
+import os
+import sys
+import pathlib
+
+import pandas as pd
+
+sys.path.insert(0, '../lib')
+
+import common_data
+
+
+ROOT = common_data.DATA
+PSEUDOBULK = ROOT / '05_pseudobulk/01_all_pseudobulk'
+
+DEG_ROOT = ROOT / '05_pseudobulk/10_vap_cured'
+DEG_ROOT2 = ROOT / '05_pseudobulk/20a_alive_vs_dead'
+DEG_ROOT3 = ROOT / '05_pseudobulk/30a_pathogens_coarse'
+DEG_ROOT4 = ROOT / '05_pseudobulk/40a_serial'
+DEG_ROOT5 = ROOT / '05_pseudobulk/50a_other_degs'
+
+
+BASE1 = ROOT / '05_pseudobulk/12_degs'
+BASE2 = ROOT / '05_pseudobulk/20c_degs'
+BASE3 = ROOT / '05_pseudobulk/30b_degs'
+BASE4 = ROOT / '05_pseudobulk/40c_degs'
+BASE5 = ROOT / '05_pseudobulk/50c_degs'
+
+
+
+
+
+cell_types = sorted([
+    d
+    for d
+    in os.listdir(PSEUDOBULK)
+    if os.path.isdir(os.path.join(PSEUDOBULK, d))
+    and not d.startswith('.')
+])
+
+deg_tasks2 = sorted([
+    d
+    for d
+    in os.listdir(DEG_ROOT)
+    if os.path.isdir(os.path.join(DEG_ROOT2, d))
+    and not d.startswith('.')
+])
+
+deg_tasks3 = sorted([
+    d
+    for d
+    in os.listdir(DEG_ROOT3)
+    if os.path.isdir(os.path.join(DEG_ROOT3, d))
+    and not d.startswith('.')
+])
+
+deg_tasks5 = sorted([
+    d
+    for d
+    in os.listdir(DEG_ROOT5)
+    if os.path.isdir(os.path.join(DEG_ROOT5, d))
+    and not d.startswith('.')
+])
+
+
+rule all:
+    input:
+        [p.parent / 'gsea.csv' for p in BASE1.glob('**/degs.csv')],
+        [p.parent / 'gsea.csv' for p in BASE2.glob('**/degs.csv')],
+        [p.parent / 'gsea.csv' for p in BASE3.glob('**/degs.csv')],
+        [p.parent / 'gsea.csv' for p in BASE4.glob('**/degs.csv')],
+        [p.parent / 'gsea.csv' for p in BASE5.glob('**/degs.csv')],
+        expand(
+            f'{DEG_ROOT}/{{cell_type}}',
+            cell_type=cell_types
+        ),
+        expand(
+            f'{DEG_ROOT2}/{{task}}/{{cell_type}}',
+            task=deg_tasks2,
+            cell_type=cell_types
+        ),
+        expand(
+            f'{DEG_ROOT3}/{{task}}/{{cell_type}}',
+            task=deg_tasks3,
+            cell_type=cell_types
+        ),
+        expand(
+            f'{DEG_ROOT4}/{{cell_type}}',
+            cell_type=cell_types
+        ),
+        expand(
+            f'{DEG_ROOT5}/{{task}}/{{cell_type}}',
+            task=deg_tasks5,
+            cell_type=cell_types
+        ),
+
+
+rule gsea:
+    input: '{dir}/degs.csv'
+    output: '{dir}/gsea.csv'
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=4,
+        slurm__cores=32,
+        slurm__mem=10,
+    run:
+        import os
+        import sys
+        import decoupler
+        import pandas as pd
+
+        msigdb = decoupler.get_resource('MSigDB', organism='human')
+        hallmark = msigdb[msigdb.collection.eq('hallmark')]
+        hallmark = hallmark[~hallmark.duplicated(['geneset', 'genesymbol'])]
+
+        degs = pd.read_csv(input[0], index_col=0)
+
+        enriched = decoupler.get_gsea_df(
+            df=degs,
+            stat='log2FoldChange',
+            net=hallmark,
+            source='geneset',
+            target='genesymbol',
+            times=10_000_000,
+            seed=1066
+        )
+        enriched.to_csv(output[0])
+
+
+rule degs:
+    input:
+        meta=f'{PSEUDOBULK}/{{cell_type}}/meta.csv',
+        counts=f'{PSEUDOBULK}/{{cell_type}}/count.txt',
+        labels=f'{DEG_ROOT}/_group_labels.csv'
+    output: directory(f'{DEG_ROOT}/{{cell_type,[A-Za-z].+}}')
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=4,
+        slurm__cores=32,
+        slurm__mem=10,
+    shell:
+        """
+        module load R/4.2.3
+
+        Rscript 11_vap_cured_deseq2.R \
+        --meta "{input.meta}" \
+        --count "{input.counts}" \
+        --labels "{input.labels}" \
+        --output "{output}"
+        """
+
+
+rule degs2:
+    input:
+        meta=f'{PSEUDOBULK}/{{cell_type}}/meta.csv',
+        counts=f'{PSEUDOBULK}/{{cell_type}}/count.txt',
+        labels=f'{DEG_ROOT2}/{{task_dir}}/_group_labels.csv'
+    output: directory(f'{DEG_ROOT2}/{{task_dir}}/{{cell_type,[A-Za-z].+}}')
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=4,
+        slurm__cores=32,
+        slurm__mem=10,
+    shell:
+        """
+        module load R/4.2.3
+
+        Rscript 20b_mortality_degs.R \
+        --meta "{input.meta}" \
+        --count "{input.counts}" \
+        --labels "{input.labels}" \
+        --output "{output}"
+        """
+
+
+rule degs3:
+    input:
+        meta=f'{PSEUDOBULK}/{{cell_type}}/meta.csv',
+        counts=f'{PSEUDOBULK}/{{cell_type}}/count.txt',
+        labels=f'{DEG_ROOT3}/{{task_dir}}/_group_labels.csv'
+    output: directory(f'{DEG_ROOT3}/{{task_dir}}/{{cell_type,[A-Za-z].+}}')
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=4,
+        slurm__cores=32,
+        slurm__mem=10,
+    shell:
+        """
+        module load R/4.2.3
+
+        Rscript 31_pathogens_degs_deseq2.R \
+        --meta "{input.meta}" \
+        --count "{input.counts}" \
+        --labels "{input.labels}" \
+        --output "{output}"
+        """
+
+
+rule degs4:
+    input:
+        meta=f'{PSEUDOBULK}/{{cell_type}}/meta.csv',
+        counts=f'{PSEUDOBULK}/{{cell_type}}/count.txt',
+        labels=f'{DEG_ROOT4}/_group_labels.csv'
+    output: directory(f'{DEG_ROOT4}/{{cell_type,[A-Za-z].+}}')
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=4,
+        slurm__cores=32,
+        slurm__mem=10,
+    shell:
+        """
+        module load R/4.2.3
+
+        Rscript 40b_serial_deseq2_combined.R \
+        --meta "{input.meta}" \
+        --count "{input.counts}" \
+        --labels "{input.labels}" \
+        --output "{output}"
+        """
+
+
+rule degs5:
+    input:
+        meta=f'{PSEUDOBULK}/{{cell_type}}/meta.csv',
+        counts=f'{PSEUDOBULK}/{{cell_type}}/count.txt',
+        labels=f'{DEG_ROOT5}/{{task_dir}}/_group_labels.csv'
+    output: directory(f'{DEG_ROOT5}/{{task_dir}}/{{cell_type,[A-Za-z].+}}')
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=4,
+        slurm__cores=32,
+        slurm__mem=10,
+    shell:
+        """
+        module load R/4.2.3
+
+        Rscript 50b_other_degs_deseq2.R \
+        --meta "{input.meta}" \
+        --count "{input.counts}" \
+        --labels "{input.labels}" \
+        --output "{output}"
+        """
