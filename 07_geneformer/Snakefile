@@ -1,0 +1,444 @@
+import sys
+sys.path.insert(0, '../lib')
+
+import common_data
+
+
+MODEL_DIR = common_data.GENEFORMER_DATA / 'models'
+DATA_DIR = common_data.GENEFORMER_DATA / 'predictions'
+EMBEDDING_DIR = common_data.GENEFORMER_DATA / 'embeddings'
+TOKENS_DIR = common_data.GENEFORMER_DATA / 'tokens'
+LOOMS_DIR = common_data.GENEFORMER_DATA / 'looms'
+N_MODELS = 5
+N_SPLITS = 4
+N_MC = 16
+MC_AGG_FILES = (
+    'avg_attn.npz', 'avg_attn_genes.csv',
+    'avg_logits.npy', 'avg_probs.npy'
+)
+
+
+# Each task and split has its own results
+# Results are MC predictions
+rule all:
+    input:
+        expand(
+            '{dir}/{task}/{split}/{model}/test_predictions/{result_file}',
+            dir=DATA_DIR,
+            task=common_data.get_tasks(),
+            split=[f'split_{i + 1}' for i in range(N_SPLITS)],
+            model=[f'model_{i + 1}' for i in range(N_MODELS)],
+            result_file=MC_AGG_FILES
+        ),
+        expand(
+            '{dir}/{task}/{split}/{model}/npc_predictions/{result_file}',
+            dir=DATA_DIR,
+            # Predict NPCs with Healthy models
+            task=[task for task in common_data.get_tasks() if task.startswith('H_')],
+            split=[f'split_{i + 1}' for i in range(N_SPLITS)],
+            model=[f'model_{i + 1}' for i in range(N_MODELS)],
+            result_file=['avg_probs.npy']
+        ),
+        expand(
+            '{dir}/{task}/{split}/{model}/pathogen_negative_predictions/{result_file}',
+            dir=DATA_DIR,
+            # Predict pathogen negatives with Healthy models and viral vs. bacterial
+            task=[task for task in common_data.get_tasks() if task.startswith('H_') or task.startswith('viral')],
+            split=[f'split_{i + 1}' for i in range(N_SPLITS)],
+            model=[f'model_{i + 1}' for i in range(N_MODELS)],
+            result_file=['avg_probs.npy']
+        ),
+        expand(
+            '{dir}/{task}/{split}/{model}/rare_pathogen_predictions/{result_file}',
+            dir=DATA_DIR,
+            # Predict rare pathogens with viral vs. bacterial
+            task=[task for task in common_data.get_tasks() if task.startswith('H_') or task.startswith('viral')],
+            split=[f'split_{i + 1}' for i in range(N_SPLITS)],
+            model=[f'model_{i + 1}' for i in range(N_MODELS)],
+            result_file=['avg_probs.npy']
+        ),
+        expand(
+            '{dir}/{task}/{split}/{model}/long_covid_predictions/{result_file}',
+            dir=DATA_DIR,
+            # Predict long covid with healthy tasks
+            task=[task for task in common_data.get_tasks() if task.startswith('H_')],
+            split=[f'split_{i + 1}' for i in range(N_SPLITS)],
+            model=[f'model_{i + 1}' for i in range(N_MODELS)],
+            result_file=['avg_probs.npy']
+        ),
+        expand(
+            '{dir}/{result_file}',
+            dir=EMBEDDING_DIR,
+            result_file=['cell_ids.npy', 'cell_embeddings.npy', 'long_covid_cell_ids.npy', 'long_covid_cell_embeddings.npy']
+        )
+
+rule save_cell_embeddings_lc:
+    input:
+        tokens=ancient(TOKENS_DIR)
+    output:
+        '{dir}/long_covid_cell_ids.npy',
+        '{dir}/long_covid_cell_embeddings.npy'
+    params:
+        slurm__account='p31841',
+        slurm__partition='gengpu',
+        slurm__hours=48,
+        slurm__cores=16,
+        slurm__mem=120,
+        slurm__gres='gpu:a100:1',
+    shell:
+        'python scripts/run_cell_embeddings_long_covid.py "{input.tokens}" "{output[0]}"'
+
+rule save_cell_embeddings:
+    input:
+        tokens=ancient(TOKENS_DIR)
+    output:
+        '{dir}/cell_ids.npy',
+        '{dir}/cell_embeddings.npy'
+    params:
+        slurm__account='p31841',
+        slurm__partition='gengpu',
+        slurm__hours=48,
+        slurm__cores=16,
+        slurm__mem=120,
+        slurm__gres='gpu:a100:1',
+    shell:
+        'python scripts/run_cell_embeddings.py "{input.tokens}" "{output[0]}"'
+
+rule avg_probs_mc_npc:
+    input:
+        tokens=ancient(TOKENS_DIR),
+        predictions=expand(
+            '{{dir}}/{{task}}/{{split}}/{{model}}/npc_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(1)]
+        )
+    output:
+        '{dir}/{task}/{split,split_\d}/{model,model_\d}/npc_predictions/avg_probs.npy'
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=1,
+        slurm__cores=16,
+        slurm__mem=60,
+        # slurm__gres='gpu:a100:1',
+        mc_paths=lambda wildcards, input: ' /// '.join(input.predictions)
+    shell:
+        '''
+        python scripts/save_avg_mc_probs.py \
+            "{input.tokens}" \
+            "{wildcards.task}" \
+            "{wildcards.split}" \
+            "{wildcards.model}" \
+            "{params.mc_paths}" \
+            "{output}"
+        '''
+
+rule avg_probs_mc_pathogen_negative:
+    input:
+        tokens=ancient(TOKENS_DIR),
+        predictions=expand(
+            '{{dir}}/{{task}}/{{split}}/{{model}}/pathogen_negative_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(1)]
+        )
+    output:
+        '{dir}/{task}/{split,split_\d}/{model,model_\d}/pathogen_negative_predictions/avg_probs.npy'
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=1,
+        slurm__cores=16,
+        slurm__mem=60,
+        # slurm__gres='gpu:a100:1',
+        mc_paths=lambda wildcards, input: ' /// '.join(input.predictions)
+    shell:
+        '''
+        python scripts/save_avg_mc_probs.py \
+            "{input.tokens}" \
+            "{wildcards.task}" \
+            "{wildcards.split}" \
+            "{wildcards.model}" \
+            "{params.mc_paths}" \
+            "{output}"
+        '''
+
+rule avg_probs_mc_rare_pathogen:
+    input:
+        tokens=ancient(TOKENS_DIR),
+        predictions=expand(
+            '{{dir}}/{{task}}/{{split}}/{{model}}/rare_pathogen_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(1)]
+        )
+    output:
+        '{dir}/{task}/{split,split_\d}/{model,model_\d}/rare_pathogen_predictions/avg_probs.npy'
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=1,
+        slurm__cores=16,
+        slurm__mem=60,
+        # slurm__gres='gpu:a100:1',
+        mc_paths=lambda wildcards, input: ' /// '.join(input.predictions)
+    shell:
+        '''
+        python scripts/save_avg_mc_probs.py \
+            "{input.tokens}" \
+            "{wildcards.task}" \
+            "{wildcards.split}" \
+            "{wildcards.model}" \
+            "{params.mc_paths}" \
+            "{output}"
+        '''
+
+rule avg_probs_mc_long_covid:
+    input:
+        tokens=ancient(TOKENS_DIR),
+        predictions=expand(
+            '{{dir}}/{{task}}/{{split}}/{{model}}/long_covid_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(1)]
+        )
+    output:
+        '{dir}/{task}/{split,split_\d}/{model,model_\d}/long_covid_predictions/avg_probs.npy'
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=1,
+        slurm__cores=16,
+        slurm__mem=60,
+        # slurm__gres='gpu:a100:1',
+        mc_paths=lambda wildcards, input: ' /// '.join(input.predictions)
+    shell:
+        '''
+        python scripts/save_avg_mc_probs.py \
+            "{input.tokens}" \
+            "{wildcards.task}" \
+            "{wildcards.split}" \
+            "{wildcards.model}" \
+            "{params.mc_paths}" \
+            "{output}"
+        '''
+
+rule avg_probs_mc:
+    input:
+        tokens=ancient(TOKENS_DIR),
+        predictions=expand(
+            '{{dir}}/{{task}}/{{split}}/{{model}}/test_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(N_MC)]
+        )
+    output:
+        '{dir}/{task}/{split,split_\d}/{model,model_\d}/test_predictions/avg_probs.npy'
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=1,
+        slurm__cores=16,
+        slurm__mem=60,
+        # slurm__gres='gpu:a100:1',
+        mc_paths=lambda wildcards, input: ' /// '.join(input.predictions)
+    shell:
+        '''
+        python scripts/save_avg_mc_probs.py \
+            "{input.tokens}" \
+            "{wildcards.task}" \
+            "{wildcards.split}" \
+            "{wildcards.model}" \
+            "{params.mc_paths}" \
+            "{output}"
+        '''
+
+rule avg_logits_mc:
+    input:
+        tokens=ancient(TOKENS_DIR),
+        predictions=expand(
+            '{{dir}}/{{task}}/{{split}}/{{model}}/test_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(N_MC)]
+        )
+    output:
+        '{dir}/{task}/{split,split_\d}/{model,model_\d}/test_predictions/avg_logits.npy'
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=1,
+        slurm__cores=16,
+        slurm__mem=60,
+        # slurm__gres='gpu:a100:1',
+        mc_paths=lambda wildcards, input: ' /// '.join(input.predictions)
+    shell:
+        '''
+        python scripts/save_avg_mc_logits.py \
+            "{input.tokens}" \
+            "{wildcards.task}" \
+            "{wildcards.split}" \
+            "{wildcards.model}" \
+            "{params.mc_paths}" \
+            "{output}"
+        '''
+
+rule avg_attn_mc:
+    input:
+        tokens=ancient(TOKENS_DIR),
+        predictions=expand(
+            '{{dir}}/{{task}}/{{split}}/{{model}}/test_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(N_MC)]
+        )
+    output:
+        '{dir}/{task}/{split,split_\d}/{model,model_\d}/test_predictions/avg_attn.npz',
+        '{dir}/{task}/{split,split_\d}/{model,model_\d}/test_predictions/avg_attn_genes.csv'
+    params:
+        slurm__account='p31841',
+        slurm__partition='short',
+        slurm__hours=1,
+        slurm__cores=16,
+        slurm__mem=120,
+        # slurm__gres='gpu:a100:1',
+        mc_paths=lambda wildcards, input: ' /// '.join(input.predictions)
+    shell:
+        '''
+        python scripts/save_avg_mc_attn.py \
+            "{input.tokens}" \
+            "{wildcards.task}" \
+            "{wildcards.split}" \
+            "{wildcards.model}" \
+            "{params.mc_paths}" \
+            "{output[0]}" \
+            "{output[1]}"
+        '''
+
+rule predict_npc:
+    input:
+        model=MODEL_DIR / '{task}/{split}/{model}',
+        tokens=ancient(TOKENS_DIR)
+    output:
+        directory(expand(
+            '{{dir}}/{{task}}/{{split,split_\d}}/{{model,model_\d}}/npc_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(1)]
+        ))
+    params:
+        slurm__account='p31841',
+        slurm__partition='gengpu',
+        slurm__hours=48,
+        slurm__cores=16,
+        slurm__mem=60,
+        slurm__gres='gpu:a100:1',
+    shell:
+        'python scripts/run_predict_npc.py "{input.model}" "{input.tokens}" "{wildcards.task}" "{wildcards.split}" "{output[0]}"'
+
+rule predict_pathogen_negative:
+    input:
+        model=MODEL_DIR / '{task}/{split}/{model}',
+        tokens=ancient(TOKENS_DIR)
+    output:
+        directory(expand(
+            '{{dir}}/{{task}}/{{split,split_\d}}/{{model,model_\d}}/pathogen_negative_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(1)]
+        ))
+    params:
+        slurm__account='b1038',
+        slurm__partition='b1038',
+        slurm__exclude='qgpu2010',
+        slurm__hours=48,
+        slurm__cores=16,
+        slurm__mem=60,
+        slurm__gres='gpu:h100:1',
+    shell:
+        'python scripts/run_predict_pathogen_negative.py "{input.model}" "{input.tokens}" "{wildcards.task}" "{wildcards.split}" "{output[0]}"'
+
+rule predict_rare_pathogen:
+    input:
+        model=MODEL_DIR / '{task}/{split}/{model}',
+        tokens=ancient(TOKENS_DIR)
+    output:
+        directory(expand(
+            '{{dir}}/{{task}}/{{split,split_\d}}/{{model,model_\d}}/rare_pathogen_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(1)]
+        ))
+    params:
+        slurm__account='p31841',
+        slurm__partition='gengpu',
+        slurm__hours=48,
+        slurm__cores=16,
+        slurm__mem=60,
+        slurm__gres='gpu:a100:1',
+    shell:
+        'python scripts/run_predict_rare_pathogen.py "{input.model}" "{input.tokens}" "{wildcards.task}" "{wildcards.split}" "{output[0]}"'
+
+rule predict_long_covid:
+    input:
+        model=MODEL_DIR / '{task}/{split}/{model}',
+        tokens=ancient(TOKENS_DIR)
+    output:
+        directory(expand(
+            '{{dir}}/{{task}}/{{split,split_\d}}/{{model,model_\d}}/long_covid_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(1)]
+        ))
+    params:
+        slurm__account='p31841',
+        slurm__partition='gengpu',
+        slurm__hours=48,
+        slurm__cores=16,
+        slurm__mem=60,
+        slurm__gres='gpu:a100:1',
+    shell:
+        'python scripts/run_predict_long_covid.py "{input.model}" "{input.tokens}" "{wildcards.task}" "{wildcards.split}" "{output[0]}"'
+
+rule predict:
+    input:
+        model=MODEL_DIR / '{task}/{split}/{model}',
+        tokens=ancient(TOKENS_DIR)
+    output:
+        directory(expand(
+            '{{dir}}/{{task}}/{{split,split_\d}}/{{model,model_\d}}/test_predictions/{mc}',
+            mc=[f'mc_{i}' for i in range(N_MC)]
+        ))
+    params:
+        slurm__account='p31841',
+        slurm__partition='gengpu',
+        slurm__hours=48,
+        slurm__cores=16,
+        slurm__mem=60,
+        slurm__gres='gpu:a100:1',
+    shell:
+        'python scripts/run_predict.py "{input.model}" "{input.tokens}" "{wildcards.task}" "{wildcards.split}" "{output[0]}"'
+
+rule train:
+    input:
+        tokens=ancient(TOKENS_DIR)
+    output:
+        directory(MODEL_DIR / '{task}/{split}/{model}')
+    params:
+        slurm__account='p31841',
+        slurm__partition='gengpu',
+        slurm__hours=12,
+        slurm__cores=16,
+        slurm__mem=60,
+        slurm__gres='gpu:a100:1',
+    shell:
+        'python scripts/run_train.py "{input.tokens}" "{wildcards.task}" "{wildcards.split}" "{output}"'
+
+rule tokenize:
+    input:
+        loom=LOOMS_DIR,
+        labels=ancient(common_data.SC_LABELS)
+    output:
+        directory(TOKENS_DIR)
+    params:
+        slurm__account='b1038',
+        slurm__partition='b1038',
+        slurm__hours=2,
+        slurm__cores=16,
+        slurm__mem=60,
+    shell:
+        'python scripts/run_tokenize.py "{input.loom}" "{input.labels}" "{output}"'
+
+rule loom:
+    input:
+        data=common_data.SC_RAW,
+        labels=ancient(common_data.SC_LABELS)
+    output:
+        directory(LOOMS_DIR)
+    params:
+        slurm__account='b1038',
+        slurm__partition='b1038',
+        slurm__hours=2,
+        slurm__cores=16,
+        slurm__mem=160,
+    shell:
+        'python scripts/write_loom.py "{input.data}" "{input.labels}" "{output}"'
