@@ -1,0 +1,763 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>
+            Pathogen-specific host responses define distinct pneumonia endotypes in the human lung
+            &rarr; DEGs
+        </title>
+        <link rel="stylesheet" href="../main.css" />
+        <link href=" https://cdn.jsdelivr.net/npm/handsontable@16.2.0/dist/handsontable.full.min.css " rel="stylesheet">
+        <style>
+            .body {
+                margin: 0 50px 0 50px;
+                max-width: max-content;
+                font-size: 15px;
+            }
+            .container {
+                /* overflow: auto; */
+                display: flex;
+                align-items: flex-start;
+            }
+            #boxplots {
+                display: flex;
+                margin-top: 15px;
+            }
+            .cell-na {
+                cursor: default;
+                fill: transparent;
+                stroke: none;
+                /* stroke: var(--border);
+                stroke-width: 1px; */
+            }
+            .side-info {
+                width: 350px;
+                min-width: 250px;
+                margin-left: 20px;
+            }
+            .cell-text {
+                pointer-events: none;
+                font-size: 11px;
+            }
+            #visualization.empty {
+                width: 1000px;
+                height: 1px;
+            }
+            #stats-panel {
+                display: inline-block;
+                margin-top: 5px;
+                padding: 15px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                background-color: #f9f9f9;
+                font-size: 90%;
+            }
+            #stats-panel h3 {
+                margin-top: 0;
+                border-bottom: 1px solid #ddd;
+                padding-bottom: 5px;
+                margin-bottom: 5px;
+            }
+            #stats-content {
+                display: flex;
+            }
+            #stats-content > div {
+                /* flex: 1; */
+                margin-right: 20px;
+            }
+            .stats-table {
+                border-collapse: collapse;
+                width: 100%;
+                /* margin-top: 10px; */
+            }
+            .stats-table td {
+                padding: 0 4px;
+                white-space: nowrap;
+            }
+            .stats-table td:first-child {
+                font-weight: bold;
+                /* width: 45%; */
+            }
+            .stats-value {
+                font-family: monospace;
+                text-align: right;
+            }
+            .axis path,
+            .axis line {
+                fill: none;
+                stroke: #000;
+                shape-rendering: crispEdges;
+            }
+            circle.selected {
+                /* stroke: #000;
+      stroke-width: 2px; */
+            }
+            .search {
+                margin: 10px 0;
+            }
+            .search input {
+                margin-left: 10px;
+                padding: 5px;
+                width: calc(100% - 30px);
+            }
+            /* jQuery UI autocomplete styling */
+            .ui-autocomplete {
+                max-height: 200px;
+                overflow-y: auto;
+                overflow-x: hidden;
+                /* font-family: Arial, sans-serif; */
+                font-size: 14px;
+            }
+            #side-panel {
+                width: 300px;
+                margin-top: -150px;
+                margin-left: 20px;
+            }
+            .gene-panel {
+                padding: 5px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                background: #f9f9f9;
+                margin-bottom: 10px;
+            }
+            .gene-panel h3 {
+                margin-top: 0;
+                border-bottom: 1px solid #ddd;
+                padding-bottom: 5px;
+                margin-bottom: 5px;
+            }
+            #hallmark {
+                max-height: 200px;
+                overflow-y: scroll;
+                font-size: 14px;
+                margin-bottom: 5px;
+                border-bottom: 1px solid var(--border);
+            }
+            .hallmark-item {
+                padding: 0px 4px;
+                margin: 1px 0;
+                cursor: pointer;
+                border-radius: 2px;
+                border: 1px solid transparent;
+            }
+            .hallmark-item:hover {
+                background-color: #f8f4e8;
+            }
+            .hallmark-selected {
+                background-color: #f3ecd8;
+                border: 1px solid var(--border);
+            }
+            .hallmark-selected:hover {
+                background-color: #f3ecd8;
+            }
+        </style>
+        <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+        <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css" />
+        <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+        <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+    </head>
+    <body class="compact">
+        <div class="nav">
+            <a href="https://sqlifts.fsm.northwestern.edu/public/">Division website</a>
+            &rarr;
+            <a href="../#b"
+                >Pathogen-specific host responses define distinct pneumonia endotypes in the human
+                lung</a
+            >
+            &rarr;
+            <a href="./">DEG explorer</a>
+        </div>
+        <div class="header">
+            <h1>DEG explorer</h1>
+            <h2><span id="title"></span></h2>
+            <div id="degs"></div>
+        </div>
+        <div class="body">
+            <div class="container">
+                <div id="visualization" class="empty"></div>
+
+                <div id="cell-info" class="side-info">
+                    <h3>Hallmark gene sets</h3>
+                    <div style="font-size: 12px; margin-bottom: 4px;">Move mouse over and click to highlight genes</div>
+                    <div id="hallmark"></div>
+                    <h3>Gene search</h3>
+                    <div class="search">
+                        <input type="text"/>
+                    </div>
+                    <h3>Gene information</h3>
+                    <div id="gene-info-content"></div>
+                </div>
+            </div>
+        </div>
+        <script type="module">
+            import * as main from "../main.js";
+            Object.keys(main).forEach((k) => (window[k] = main[k]));
+
+            const TS = Math.floor(Date.now() / 1000);
+
+            // Add loading indicator
+            const loadingDiv = d3
+                .select("#visualization")
+                .append("div")
+                .attr("class", "loading").html(`
+                <div class="loading-spinner"></div>
+                <div>Loading DEG information...</div>
+                `);
+
+            // Get comparison and cellType parameters from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const comparison = urlParams.get("comparison");
+            const cellType = urlParams.get("cellType");
+
+            if (!comparison || !cellType) {
+                document.getElementById("visualization").innerHTML =
+                    "<p>Error: Missing comparison or cellType parameter</p>";
+            } else {
+                // Set page title
+                document.getElementById("title").textContent =
+                    `${comparison} in ${cellType}`;
+
+                const geneInfoContent = document.getElementById("gene-info-content");
+
+                // Variable to store stats data
+                let statsData = null;
+
+                // Load the stats data at startup
+                function loadStatsData() {
+                    return fetchCsvGz("merged_stats.csv.gz?" + TS);
+                }
+
+                function findStatsForCell(cellType, comparison) {
+                    return statsData.find(
+                        (d) => d.cell_type === cellType && d.task === comparison,
+                    );
+                }
+
+                function updateStatsPanel(stats) {
+                    const statsContent = document.getElementById("title");
+
+                    const down = `<span class='deg-downregulated' style='font-weight: normal'><i>n</i> = ${formatNumber(stats.group1_count)}</span>`;
+                    const up = `<span class='deg-upregulated' style='font-weight: normal'><i>n</i> = ${formatNumber(stats.group2_count)}</span>`;
+
+                    let task = stats.task;
+                    let taskSuffix = '';
+                    if (task.indexOf('(') > -1) {
+                        taskSuffix = ' ' + task.substring(task.indexOf('('));
+                        task = task.substring(0, task.indexOf('('));
+                    }
+                    let parts = task.split(" vs. ");
+                    if (parts.length == 1) {
+                        parts = [stats.group1, stats.group2];
+                    }
+
+                    const html = (
+                        parts[0]
+                        + ` (<span class="deg-downregulated">⬇︎</span>, ${down})`
+                        + " vs. "
+                        + parts[1].trim()
+                        + ` (<span class="deg-upregulated">⬆︎</span>, ${up})`
+                        + taskSuffix
+                        + ` in ${stats.cell_type}`
+                    );
+
+                    statsContent.innerHTML = html;
+                }
+
+                // First load stats data, then load and display gene data
+                loadStatsData().then((stats) => {
+                    statsData = stats;
+
+                    // Find stats for current comparison and cell type
+                    const cellStats = findStatsForCell(cellType, comparison);
+                    updateStatsPanel(cellStats);
+
+                    // Construct the CSV file path for gene data
+                    const csvUrl = `${encodeURIComponent(comparison.replaceAll('/', '_'))}/${encodeURIComponent(cellType)}_degs.csv.gz`;
+
+                    // // Set the download link for the CSV file
+                    // const downloadLink = document.getElementById("download-csv");
+                    // downloadLink.href = csvUrl;
+                    // downloadLink.download = `${cellType}_${comparison}_degs.csv.gz`;
+                    // downloadLink.textContent = `Download data as CSV`;
+
+                    // Load and display the gene data
+                    fetchCsvGz(csvUrl + "?" + TS)
+                        .then(function(data) {
+                            let stickyGene;
+                            let stickyHallmark;
+                            let hallmarkData;
+                            let tableRendered = false;
+
+                            const degInfo = document.getElementById('degs');
+                            degInfo.innerHTML = `Genes:
+                            <span class='deg-downregulated' style='font-weight: normal'>${formatNumber(cellStats.group1_up)} downregulated</span>,
+                            <span class='deg-upregulated' style='font-weight: normal'>${formatNumber(cellStats.group2_up)} upregulated</span>
+                            <button id="deg-view" class="up compact" style="margin-left: 20px;">View as table</button>
+                            `;
+                            d3.select('.overlay .close').on('click', function(e) {
+                                d3.select('.overlay').classed('hidden', true);
+                            });
+                            d3.select('#deg-view').on('click', function() {
+                                d3.select('.overlay').classed('hidden', false);
+                                if (tableRendered) {
+                                    return;
+                                }
+                                tableRendered = true;
+
+                                const element = document.getElementById("table-holder");
+
+                                new Handsontable(element, {
+                                    data: d3.sort(data, (a, b) => d3.ascending(+a.log2FoldChange, +b.log2FoldChange)),
+                                    columns: [
+                                        { data: "", title: "Gene", width: 100, className: 'gene' },
+                                        { data: "baseMean", title: "Average expression"},
+                                        { data: "log2FoldChange", title: "log<sub>2</sub>(Fold change)", type: "numeric" },
+                                        { data: "padj", title: "Adjusted <i>p</i>-value", type: "numeric" },
+                                        { data: "sign", title: "Regulation"},
+                                        { data: "secretome", title: "Secretome"},
+                                    ],
+                                    rowHeaders: true,
+                                    navigableHeaders: true,
+                                    tabNavigation: true,
+                                    multiColumnSorting: true,
+                                    headerClassName: "htLeft",
+                                    height: 700,
+                                    stretchH: 'all',
+                                    readOnly: true,
+                                    readOnlyCellClassName: '',
+                                    dropdownMenu: true,
+                                    filters: true,
+                                    fixedColumnsLeft: 1,
+	                                fixedRowsBottom: 1,
+                                    licenseKey: "non-commercial-and-evaluation",
+                                });
+                            });
+
+                            // Load and process hallmark gene sets
+                            d3.json("h.all.v2025.1.Hs.json?" + TS)
+                                .then(function(data) {
+                                    hallmarkData = data;
+                                    // Add any additional terms from the JSON that aren't in the list
+                                    Object.keys(hallmarkData).forEach((term) => {
+                                        if (!GSEA_LIST.includes(term)) {
+                                            GSEA_LIST.push(term);
+                                        }
+                                    });
+
+                                    // Process terms by removing HALLMARK_ prefix
+                                    const processedTerms = GSEA_LIST.map((term) => ({
+                                        original: term,
+                                        display: term.replace(/^HALLMARK_/, ""),
+                                    }));
+
+                                    // Display hallmark terms in the div
+                                    const hallmarkDiv = d3.select("#hallmark");
+                                    processedTerms.forEach((term) => {
+                                        hallmarkDiv
+                                            .append("div")
+                                            .attr("class", "hallmark-item")
+                                            .attr("data-term", term.original)
+                                            .text(processHallmarkName(term.display))
+                                            .on("mouseover", function() {
+                                                highlightGenes(
+                                                    hallmarkData[term.original].geneSymbols,
+                                                );
+                                            })
+                                            .on("click", function(e) {
+                                                const el = d3.select(e.target);
+                                                const klass = 'hallmark-selected';
+                                                hallmarkDiv.select(`.${klass}`).filter(function() {
+                                                    return this != e.target
+                                                }).classed(klass, false);
+                                                const selected = el.classed(klass)
+                                                el.classed(klass, !selected);
+                                                if (selected) {
+                                                    stickyHallmark = null;
+                                                } else {
+                                                    stickyHallmark = term.original;
+                                                    stickyGene = null;
+                                                }
+                                            })
+                                            .on("mouseout", function () {
+                                                if (stickyHallmark) {
+                                                    highlightGenes(hallmarkData[stickyHallmark].geneSymbols);
+                                                } else if (stickyGene) {
+                                                    highlight(stickyGene);
+                                                } else {
+                                                    highlightGroupHallmark.selectAll("*").remove();
+                                                    geneInfoContent.innerHTML = "";
+                                                }
+                                            });
+                                    });
+                                })
+                                .catch(function (error) {
+                                    console.error("Error loading hallmark data:", error);
+                                    d3.select("#hallmark").html(
+                                        '<div style="color: red;">Error loading hallmark gene sets</div>',
+                                    );
+                                });
+
+                            const body = d3.select("body");
+                            const margin = { top: 20, right: 20, bottom: 80, left: 80 };
+                            const width = 1000 - margin.left - margin.right;
+                            const height = 600 - margin.top - margin.bottom;
+                            const numberFormat2e = d3.format(".2e");
+                            const numberFormatInt = d3.format("d");
+                            const numberFormat2f = d3.format(".2f");
+                            const geneColumn = Object.keys(data[0])[0];
+
+                            // Prepare gene names list for autocomplete
+                            const genes = [];
+                            for (const d of data) {
+                                // Use the first column for gene names
+                                const geneName = d[Object.keys(d)[0]];
+                                if (geneName) {
+                                    genes.push([geneName.toLowerCase(), geneName]);
+                                }
+                            }
+                            genes.sort();
+
+                            const x = d3
+                                .scaleLog()
+                                .domain([
+                                    // d3.min(data, (d) => Math.max(0.1, +d.baseMean)) * 0.8,
+                                    d3.min(data, (d) => +d.baseMean) * 0.8,
+                                    d3.max(data, (d) => +d.baseMean) * 1.1,
+                                ])
+                                .range([0, width]);
+
+                            const y = d3
+                                .scaleLinear()
+                                .domain([
+                                    d3.min(data, (d) => +d.log2FoldChange),
+                                    d3.max(data, (d) => +d.log2FoldChange),
+                                ])
+                                .range([height, 0])
+                                .nice();
+
+                            // Create a quadtree for efficient point lookup on hover
+                            const tree = d3
+                                .quadtree()
+                                // .x((d) => x(Math.max(0.1, +d.baseMean)))
+                                .x((d) => x(+d.baseMean))
+                                .y((d) => y(+d.log2FoldChange))
+                                .addAll(data);
+
+                            loadingDiv.remove();
+                            d3.select("#visualization").classed("empty", false);
+
+                            // Create SVG element
+                            const svg = d3
+                                .select("#visualization")
+                                .append("svg")
+                                .attr("width", width + margin.left + margin.right)
+                                .attr("height", height + margin.top + margin.bottom)
+                                .append("g")
+                                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                            // Add X axis
+                            svg.append("g")
+                                .attr("class", "axis x-axis")
+                                .attr("transform", `translate(0,${height})`)
+                                .call(d3.axisBottom(x).ticks(5, "f"));
+
+                            // Add X axis label
+                            svg.append("text")
+                                .attr("transform", `translate(${width / 2},${height + 40})`)
+                                .style("text-anchor", "middle")
+                                .text("Average expression (log scale)");
+
+                            // Add Y axis
+                            svg.append("g").attr("class", "axis y-axis").call(d3.axisLeft(y));
+
+                            // Add Y axis label
+                            svg.append("text")
+                                .attr("transform", "rotate(-90)")
+                                .attr("y", -30)
+                                .attr("x", -height / 2)
+                                .style("text-anchor", "middle")
+                                .html('log<tspan dy="4" font-size="10">2</tspan><tspan dy="-4">&#8203;</tspan>(Fold change)');
+
+                            // Add search box
+                            const search = d3.select('.search input');
+
+                            // Create a separate group for all circles to ensure they stay below the mouse event rectangle
+                            const circlesGroup = svg.append("g").attr("class", "circles-group");
+
+                            // Draw the non-significant genes first (empty sign)
+                            circlesGroup
+                                .selectAll(".non-sig-circle")
+                                .data(data.filter((d) => !d.sign || d.sign.trim() === ""))
+                                .enter()
+                                .append("circle")
+                                .attr("class", "gene-point non-significant")
+                                // .attr("cx", (d) => x(Math.max(0.1, +d.baseMean)))
+                                .attr("cx", (d) => x(+d.baseMean))
+                                .attr("cy", (d) => y(+d.log2FoldChange))
+                                .attr("r", 3)
+                                .attr("stroke", "#ccc")
+                                .attr("stroke-width", 0.5)
+                                .attr("fill", "#ccccd2");
+
+                            // from https://observablehq.com/@d3/voronoi-labels
+                            const delaunay = d3.Delaunay.from(
+                                data.filter((d) => +d.padj < 0.05),
+                                (d) => x(+d.baseMean),
+                                (d) => y(+d.log2FoldChange)
+                            );
+                            const voronoi = delaunay.voronoi([-1, -1, width + 1, height + 1]);
+                            const orient = ({
+                                top: text => text.attr("text-anchor", "middle").attr("y", -6),
+                                right: text => text.attr("text-anchor", "start").attr("dy", "0.35em").attr("x", 6),
+                                bottom: text => text.attr("text-anchor", "middle").attr("dy", "0.71em").attr("y", 6),
+                                left: text => text.attr("text-anchor", "end").attr("dy", "0.35em").attr("x", -6)
+                            });
+
+                            // Draw significant genes (up or down regulated)
+                            circlesGroup
+                                .selectAll(".sig-circle")
+                                .data(data.filter((d) => +d.padj < 0.05))
+                                .enter()
+                                .append("circle")
+                                .attr("class", "gene-point significant")
+                                // .attr("cx", (d) => x(Math.max(0.1, +d.baseMean)))
+                                .attr("cx", (d) => x(+d.baseMean))
+                                .attr("cy", (d) => y(+d.log2FoldChange))
+                                .attr("r", 3.5)
+                                .attr("stroke", "black")
+                                .attr("stroke-width", 0)
+                                .attr("fill", (d) => {
+                                    // Color based on sign
+                                    if (+d.log2FoldChange < 0) return "#5da4ea"; // blue for down-regulated
+                                    return "#f45d5f"; // red for up-regulated
+                                });
+
+                            svg.append("g")
+                                .style("font", "italic 10px sans-serif")
+                                .selectAll("text")
+                                .data(data.filter((d) => +d.padj < 0.05))
+                                .join("text")
+                                .each(function(d, i) {
+                                    const cell = voronoi.cellPolygon(i);
+                                    const [cx, cy] = d3.polygonCentroid(cell);
+                                    const angle = (Math.round(Math.atan2(cy - y(+d.log2FoldChange), cx - x(+d.baseMean)) / Math.PI * 2) + 4) % 4;
+                                    d3.select(this).call(angle === 0 ? orient.right
+                                        : angle === 3 ? orient.top
+                                        : angle === 1 ? orient.bottom
+                                        : orient.left);
+                                })
+                                .attr("transform", (d) => `translate(${x(+d.baseMean)}, ${y(+d.log2FoldChange)})`)
+                                .attr("display", (d, i) => -d3.polygonArea(voronoi.cellPolygon(i)) > 1500 ? null : "none")
+                                .text((d) => d[geneColumn]);
+
+                            // Create a group for the highlighted copy
+                            const highlightGroupHallmark = svg.append("g").attr("class", "highlight-group");
+                            const highlightGroup = svg.append("g").attr("class", "highlight-group");
+
+                            // Highlight function for genes
+                            function highlight(geneName, sticky) {
+                                let record = null;
+                                if (sticky) {
+                                    stickyGene = geneName;
+                                }
+
+
+                                // Remove any previously highlighted copy
+                                highlightGroup.selectAll("*").remove();
+
+                                // Find the matching gene record and create a highlighted copy
+                                circlesGroup.selectAll("circle").each(function (d) {
+                                    if (d[geneColumn] === geneName) {
+                                        record = d;
+                                        let circ = d3.select(this);
+                                        highlightGroup
+                                            .append("circle")
+                                            .attr("class", "gene-point-highlight")
+                                            .attr("cx", circ.attr("cx"))
+                                            .attr("cy", circ.attr("cy"))
+                                            .attr("r", () => {
+                                                return stickyHallmark && 1 || 4
+                                            })
+                                            .attr("stroke", '#000')
+                                            .attr("stroke-width", () => {
+                                                return stickyHallmark && 0 || 2
+                                            })
+                                            .attr("fill", () => {
+                                                return stickyHallmark && '#000' || circ.attr("fill")
+                                            });
+                                    }
+                                });
+
+
+                                // Update gene info panel
+                                if (record) {
+                                    let klass = "";
+                                    if (+record.padj < 0.05) {
+                                        klass = "deg ";
+                                        if (+record.log2FoldChange < 0) {
+                                            klass += "deg-downregulated";
+                                        } else {
+                                            klass += "deg-upregulated";
+                                        }
+                                    }
+                                    let exprFormat = numberFormatInt;
+                                    if (record.baseMean < 100) {
+                                        exprFormat = d3.format('.1f');
+                                    }
+                                    if (record.baseMean < 10) {
+                                        exprFormat = numberFormat2f;
+                                    }
+                                    geneInfoContent.innerHTML = `<table>
+                  <tr><td><b>Gene</b>:</td><td class="gene-list ${klass}">${record[geneColumn]}</td></tr>
+                  <tr><td><b>Regulation</b>:</td><td>${record.sign ? record.sign : "–"}</td></tr>
+                  <tr><td><b>log<sub>2</sub>(Fold change)</b>:</td><td>${formatNumber(d3.format('.3f')(record.log2FoldChange))}</td></tr>
+                  <tr><td><b>Average expression</b>:</td><td>${formatNumber(exprFormat(record.baseMean))}</td></tr>
+                  <tr><td><b>Adjusted <i>p</i>-value</b>:</td><td>${formatNumber(numberFormat2e(record.padj))}</td></tr>
+                </table>`;
+                                } else {
+                                    geneInfoContent.innerHTML = "";
+                                }
+                            }
+
+                            // Highlight multiple genes function
+                            function highlightGenes(geneList) {
+                                const geneSet = new Set(geneList);
+
+                                // Arrays to categorize genes
+                                const upregulated = [];
+                                const downregulated = [];
+                                const nonSignificant = [];
+                                const notFound = [];
+
+                                // Remove any previously highlighted copies
+                                highlightGroupHallmark.selectAll("*").remove();
+
+                                // Create a map of gene name to circle data
+                                const geneDataMap = new Map();
+                                circlesGroup.selectAll("circle").each(function (d) {
+                                    geneDataMap.set(d[geneColumn], { data: d, element: this });
+                                });
+
+                                // Process each gene in the list
+                                geneList.forEach((geneName) => {
+                                    const geneInfo = geneDataMap.get(geneName);
+
+                                    if (geneInfo) {
+                                        const d = geneInfo.data;
+                                        const circ = d3.select(geneInfo.element);
+
+                                        // Create highlighted copy
+                                        highlightGroupHallmark
+                                            .append("circle")
+                                            .attr("class", "gene-point-highlight")
+                                            .attr("cx", circ.attr("cx"))
+                                            .attr("cy", circ.attr("cy"))
+                                            .attr("r", 4)
+                                            .attr("stroke", "#000")
+                                            .attr("stroke-width", 2)
+                                            .attr("fill", circ.attr("fill"));
+
+                                        // Categorize gene
+                                        if (+d.padj < 0.05) {
+                                            if (+d.log2FoldChange < 0) {
+                                                downregulated.push(geneName);
+                                            } else {
+                                                upregulated.push(geneName);
+                                            }
+                                        } else {
+                                            nonSignificant.push(geneName);
+                                        }
+                                    } else {
+                                        notFound.push(geneName);
+                                    }
+                                });
+
+                                // Update gene info panel with categorized lists
+                                let html = '<div style="font-size: 12px;">';
+                                html += `<strong>Total genes:</strong> ${geneList.length}<br/>`;
+
+                                if (upregulated.length > 0) {
+                                    html += `<strong class="deg deg-upregulated">Upregulated (${upregulated.length}):</strong><br/>`;
+                                    html += '<span class="gene-list gene-list-small">' + upregulated.join(", ") + '</span>';
+                                }
+
+                                if (downregulated.length > 0) {
+                                    html += `<br/><strong class="deg deg-downregulated">Downregulated (${downregulated.length}):</strong><br/>`;
+                                    html += '<span class="gene-list gene-list-small">' + downregulated.join(", ") + '</span>';
+                                }
+
+                                if (nonSignificant.length > 0) {
+                                    html += `<br/><br/><strong>Non-significant (${nonSignificant.length})</strong><br/>`;
+                                }
+
+                                if (notFound.length > 0) {
+                                    html += `<strong style="color: #999;">Not found (${notFound.length})</strong>`;
+                                }
+
+                                html += "</div>";
+                                geneInfoContent.innerHTML = html;
+                            }
+
+                            // Initialize jQuery UI autocomplete for gene search
+                            $(search.node()).autocomplete({
+                                source: function (request, response) {
+                                    const term = request.term.toLowerCase();
+                                    const results = [];
+                                    for (const gene of genes) {
+                                        if (gene[0].includes(term)) {
+                                            results.push(gene[1]);
+                                            if (results.length >= 20) break; // Limit results
+                                        }
+                                    }
+                                    response(results);
+                                },
+                                select: function (event, ui) {
+                                    highlight(ui.item.value, true);
+                                    return true;
+                                },
+                            });
+
+                            // Add hover interaction to the plot area - keep this as the last SVG element
+                            svg.append("rect")
+                                .attr("width", width)
+                                .attr("height", height)
+                                .style("fill", "none")
+                                .style("pointer-events", "all")
+                                .on("mousemove", function (event) {
+                                    const coords = d3.pointer(event, this);
+                                    const x0 = coords[0] - 3;
+                                    const y0 = coords[1] - 3;
+                                    const closest = tree.find(x0, y0, 30);
+                                    if (closest) {
+                                        highlight(closest[Object.keys(closest)[0]]);
+                                    } else if (stickyGene) {
+                                        highlight(stickyGene);
+                                    } else if (stickyHallmark) {
+                                        highlightGroup.selectAll("*").remove();
+                                        highlightGenes(hallmarkData[stickyHallmark].geneSymbols);
+                                    } else {
+                                        highlightGroup.selectAll("*").remove();
+                                        document.getElementById("gene-info-content").innerHTML = "";
+                                    }
+                                })
+                                .on("mouseout", function () {
+                                    // Don't clear highlight on mouseout to allow moving to panel
+                                    // Optionally clear panel here if desired
+                                });
+
+                        })
+                        .catch(function (error) {
+                            console.error("Error loading CSV:", error);
+                            document.getElementById("visualization").innerHTML =
+                                `<p>Error loading data: ${error.message}</p>`;
+                        });
+                });
+            }
+        </script>
+        <div class="overlay hidden">
+            <div class="close" style="float: right; color: #333; font-size: 32px; margin: 50px 50px 0 0; cursor: pointer;">✖</div>
+            <div id="table-holder"></div>
+        </div>
+    </body>
+</html>

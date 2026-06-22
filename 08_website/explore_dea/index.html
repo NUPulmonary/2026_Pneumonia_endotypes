@@ -1,0 +1,492 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>
+            Pathogen-specific host responses define distinct pneumonia endotypes in the human lung
+            &rarr; DEGs
+        </title>
+        <link rel="stylesheet" href="../main.css" />
+        <style>
+            .body {
+                margin: 0 50px 0 50px;
+                max-width: max-content;
+                font-size: 15px;
+            }
+            .container {
+                /* overflow: auto; */
+                display: flex;
+                align-items: flex-start;
+            }
+            #boxplots {
+                display: flex;
+                margin-top: 15px;
+            }
+            .cell-na {
+                cursor: default;
+                fill: transparent;
+                stroke: none;
+                /* stroke: var(--border);
+                stroke-width: 1px; */
+            }
+            .side-info {
+                width: 300px;
+                min-width: 200px;
+                margin-left: 20px;
+            }
+            .cell-text {
+                pointer-events: none;
+                font-size: 11px;
+            }
+            #visualization.empty {
+                width: 1000px;
+                height: 1px;
+            }
+        </style>
+        <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    </head>
+    <body class="compact">
+        <div class="nav">
+            <a href="https://sqlifts.fsm.northwestern.edu/public/">Division website</a>
+            &rarr;
+            <a href="../#b"
+                >Pathogen-specific host responses define distinct pneumonia endotypes in the human
+                lung</a
+            >
+        </div>
+        <div class="header">
+            <h1>Differential expression analysis explorer</h1>
+            <div class="abstract">
+                <p>
+                    Click on comparison (row name) to explore comparison GSEA<br />
+                    Click on a cell to explore DEGs for that cell type and comparison
+                </p>
+            </div>
+        </div>
+        <div class="body">
+            <div class="container">
+                <div id="visualization" class="empty"></div>
+
+                <div id="cell-info" class="side-info">
+                    <h3>Comparison information</h3>
+                    <p id="no-cell-selected">
+                        Move mouse over a cell to see details, click to open MA plot
+                    </p>
+                    <div id="cell-info-content"></div>
+                </div>
+            </div>
+        </div>
+
+        <script type="module">
+            import * as main from "../main.js";
+            Object.keys(main).forEach((k) => (window[k] = main[k]));
+            const TS = Math.floor(Date.now() / 1000);
+
+            // Add loading indicator
+            const loadingDiv = d3
+                .select("#visualization")
+                .append("div")
+                .attr("class", "loading").html(`
+                <div class="loading-spinner"></div>
+                <div>Loading DEG information...</div>
+                `);
+
+            const PRETTY_NAMES = {
+                alive_vs_dead: "Discharged vs. Deceased (all)",
+                alive_vs_dead_bacterial: "Discharged vs. Deceased (bacterial)",
+                alive_vs_dead_viral: "Discharged vs. Deceased (viral)",
+                alive_vs_dead_pathogen_negative: "Discharged vs. Deceased (pathogen-negative)",
+                "[combined-no-vap] first vs second": "CAP/HAP/NPC then no VAP",
+                "[combined-vap] first vs second": "CAP/HAP/NPC then VAP",
+                "[combined-baseline] no_vap vs vap": "Future No VAP vs. Future VAP",
+                // "[combined] no_vap vs vap": "Timepoint 2 (no VAP) vs. Timepoint 2 (VAP)",
+                vap_cured: "VAP will be cured vs. not cured",
+                "gram+_vs_gram-": "Gram+ vs. Gram–",
+                "pseudomonas_vs_gram-": "Pseudomonas vs. Other Gram–",
+                age: "Age < 65 vs. ⩾ 65",
+                sex: "Male vs. Female",
+                immunocompromised: "Immunocompetent vs. not",
+                steroid_dose: "Cumulative steroid dose ⩽ 600 vs. > 600",
+                days_on_vent: "Days on ventilator < 2 vs. > 16",
+            };
+
+            const ORDER = [
+                "Healthy vs. NPC",
+                "Healthy vs. Early SARS-CoV-2",
+                "Healthy vs. Late SARS-CoV-2",
+                "Healthy vs. Bacterial",
+                "Healthy vs. Mixed",
+                '#',
+                "NPC vs. Early SARS-CoV-2",
+                "NPC vs. Late SARS-CoV-2",
+                "NPC vs. Bacterial",
+                "NPC vs. Mixed",
+                "Early SARS-CoV-2 vs. Late SARS-CoV-2",
+                "Early SARS-CoV-2 vs. Bacterial",
+                "Early SARS-CoV-2 vs. Mixed",
+                "Late SARS-CoV-2 vs. Bacterial",
+                "Late SARS-CoV-2 vs. Mixed",
+                "Bacterial vs. Mixed",
+                "Gram+ vs. Gram–",
+                "Pseudomonas vs. Other Gram–",
+                '#',
+                "Survived vs. Died (all samples)",
+                "Survived vs. Died (early SARS-CoV-2)",
+                "Survived vs. Died (bacterial)",
+                "Survived vs. Died (pathogen-negative)",
+                '#',
+                "CAP/HAP/NPC then no VAP",
+                "CAP/HAP/NPC then VAP",
+                "Future No VAP vs. Future VAP",
+                '#',
+                "VAP will be cured vs. not cured",
+                '#',
+                "Age < 65 vs. ≥ 65",
+                "Male vs. Female",
+                "Immunocompetent vs. not",
+                "Cumulative steroid dose ≤ 600 vs. > 600",
+                "Days on ventilator < 2 vs. > 16",
+            ];
+            // Create a map from original names to pretty names
+            const comparisonMap = new Map();
+
+            const CELL_TYPE_MAP = {};
+
+            // Set up dimensions and margins
+            const margin = { top: 2, right: 100, bottom: 30, left: 300 };
+            const width = 1000 - margin.left - margin.right;
+            const height = 800 - margin.top - margin.bottom;
+            const cellSize = 25;
+
+            // Variable to store stats data
+            let statsData = [];
+
+            // Track current highlighted cell
+            let highlightedCell = null;
+
+            // Load the stats data at startup
+            function loadStatsData() {
+                return fetchCsvGz("merged_stats.csv.gz?" + TS);
+            }
+
+            function findStatsForCell(cellType, comparison) {
+                // Find the matching stats record
+                return statsData.find(
+                    (d) => d.cell_type === cellType && d.task === comparisonMap.get(comparison),
+                );
+            }
+
+            function updateInfoPanel(d) {
+                const cellInfoContent = document.getElementById("cell-info-content");
+                const noSelectionMsg = document.getElementById("no-cell-selected");
+
+                if (!d || !d.value || d.value === "") {
+                    cellInfoContent.innerHTML = "";
+                    noSelectionMsg.style.display = "block";
+                    return;
+                }
+
+                noSelectionMsg.style.display = "none";
+
+                // Find the corresponding stats data
+                const stats = findStatsForCell(d.cellType, d.comparison);
+
+                let infoContent = `<b>Comparison:</b> <span class='no-break'>${d.comparison}</span><br>`;
+                infoContent += `<b>Cell type:</b> ${CELL_TYPE_MAP[d.cellType]}<br><br>`;
+
+                // Add stats data if available
+                if (stats) {
+                    infoContent += `<b>Sample counts:</b><br>`;
+                    infoContent += `· ${stats.group1}: ${formatNumber(stats.group1_count)}<br>`;
+                    infoContent += `· ${stats.group2}: ${formatNumber(stats.group2_count)}<br>`;
+                    infoContent += `· Background: ${formatNumber(stats.discard_count)}<br>`;
+                    infoContent += `· Total: ${formatNumber(+stats.discard_count + +stats.group1_count + +stats.group2_count)}<br><br>`;
+
+                    infoContent += `<b>DEG count:</b> ${formatNumber(parseInt(d.value))}<br>`;
+                    infoContent += `· Up in ${stats.group1}: ${formatNumber(stats.group1_up)}<br>`;
+                    infoContent += `· Up in ${stats.group2}: ${formatNumber(stats.group2_up)}<br>`;
+                }
+
+                cellInfoContent.innerHTML = infoContent;
+            }
+
+            function loadData(csvUrl) {
+                // First load stats data, then load and process main data
+                loadStatsData().then((stats) => {
+                    statsData = stats;
+
+                    // Now load main CSV data
+                    fetchCsvGz(csvUrl + "?" + TS).then(async function (data) {
+                        // Extract column names (cell types) and row names (comparisons)
+                        const cellTypes = [];
+                        for (let cellType of data.columns.slice(1)) {
+                            let prettyName = cellType.replaceAll("_", " ");
+                            CELL_TYPE_MAP[cellType] = prettyName;
+                            if (CELL_TYPE_ORDER.indexOf(prettyName) === -1) {
+                                continue;
+                            }
+                            cellTypes[CELL_TYPE_ORDER.indexOf(prettyName)] = cellType;
+                        }
+
+                        data.forEach((d) => {
+                            const originalName = d[""];
+                            let prettyName = PRETTY_NAMES[originalName] || originalName;
+                            if (prettyName.indexOf("vs.") === -1) {
+                                prettyName = prettyName.replace(" vs ", " vs. ");
+                                PRETTY_NAMES[originalName] = prettyName; // Cache the updated pretty name
+                            }
+                            comparisonMap.set(prettyName, originalName);
+                        });
+
+                        // Use ORDER to determine comparison order, filtering out gaps and non-existent comparisons
+                        const comparisons = ORDER.filter(
+                            (name) => name !== "#" && comparisonMap.has(name),
+                        );
+
+                        // Create data structure that includes gaps
+                        const comparisonPositions = [];
+                        let position = 0;
+                        ORDER.forEach((name) => {
+                            if (name === "#") {
+                                position += 0.5; // Add half-space for gap
+                            } else if (comparisonMap.has(name)) {
+                                comparisonPositions.push({ name, position });
+                                position += 1;
+                            }
+                        });
+
+                        // Create scales
+                        const x = d3.scaleBand().domain(cellTypes).range([0, width]).padding(0.05);
+
+                        // Create custom y scale with gaps
+                        const totalHeight =
+                            comparisonPositions.length > 0
+                                ? comparisonPositions[comparisonPositions.length - 1].position + 1
+                                : 0;
+                        const yBandwidth = height / totalHeight;
+
+                        const y = (comparison) => {
+                            const pos = comparisonPositions.find((p) => p.name === comparison);
+                            return pos ? pos.position * yBandwidth : 0;
+                        };
+                        y.bandwidth = () => yBandwidth * 0.95;
+
+                        // Calculate max value for color scaling (excluding missing values)
+                        const maxValue = d3.max(data, (d) =>
+                            d3.max(cellTypes, (c) => (d[c] && d[c] !== "" ? +d[c] : 0)),
+                        );
+
+                        // Create color scale with log transformation
+                        const colorScale = d3
+                            .scaleSequential()
+                            .interpolator(d3.interpolateMagma)
+                            .domain([0, Math.log1p(maxValue)]); // Use log scale for the domain
+
+                        // Function to determine color based on value
+                        const getColor = (value) => {
+                            if (!value || value === "") return "white"; // White for missing data (NA)
+
+                            value = +value;
+                            if (value === 0) {
+                                // Use the same color as the minimum value (1)
+                                return colorScale(Math.log1p(1));
+                            } else {
+                                // Apply log transformation to non-zero values
+                                return colorScale(Math.log1p(value));
+                            }
+                        };
+
+                        // Remove loading indicator
+                        loadingDiv.remove();
+                        d3.select("#visualization").classed("empty", false);
+
+                        // Create SVG
+                        const svg = d3
+                            .select("#visualization")
+                            .append("svg")
+                            .attr("width", width + margin.left + margin.right)
+                            .attr("height", height + margin.top + margin.bottom + 150) // Add more space for column labels
+                            .append("g")
+                            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                        // Add row labels (comparisons) and make them clickable
+                        svg.append("g")
+                            .selectAll("text")
+                            .data(comparisons)
+                            .enter()
+                            .append("text")
+                            .attr("class", "row-label as-link")
+                            .attr("x", -10)
+                            .attr("y", (d) => y(d) + y.bandwidth() / 2)
+                            .attr("dy", ".32em")
+                            .text((d) => d)
+                            .on("click", function (event, d) {
+                                window.location.href = `gsea_plot.html?comparison=${encodeURIComponent(comparisonMap.get(d))}`;
+                            });
+
+                        // Create heatmap cells with cell values displayed
+                        const cells = svg
+                            .selectAll(".cell-group")
+                            .data(
+                                data.flatMap((d) => {
+                                    const originalName = d[""];
+                                    const prettyName = PRETTY_NAMES[originalName] || originalName;
+                                    return cellTypes.map((cellType) => ({
+                                        comparison: prettyName,
+                                        originalComparison: originalName,
+                                        cellType: cellType,
+                                        value: d[cellType],
+                                    }));
+                                }),
+                            )
+                            .enter()
+                            .append("g")
+                            .attr("class", "cell-group");
+
+                        // Add cell rectangles
+                        cells
+                            .append("rect")
+                            .attr("class", (d) =>
+                                d.value && d.value !== "" ? "cell cell-link" : "cell cell-na",
+                            )
+                            .attr("x", (d) => x(d.cellType))
+                            .attr("y", (d) => y(d.comparison))
+                            .attr("width", x.bandwidth())
+                            .attr("height", y.bandwidth())
+                            .attr("fill", (d) => getColor(d.value))
+                            .attr("stroke-width", 2)
+                            .attr("stroke", (d) => getColor(d.value))
+                            .on("mouseover", function (event, d) {
+                                // Only show info for cells with values
+                                if (d.value && d.value !== "") {
+                                    // Unhighlight previous cell if exists
+                                    if (highlightedCell) {
+                                        highlightedCell.classed("highlighted", false);
+                                    }
+
+                                    // Highlight current cell
+                                    highlightedCell = d3.select(this).classed("highlighted", true);
+
+                                    // Update info panel
+                                    updateInfoPanel(d);
+                                }
+                            })
+                            .on("mouseout", function (event, d) {
+                                // Keep the info panel content when moving from cell to info panel
+                                // We'll clear it when explicitly hovering over another cell
+                            })
+                            .on("click", function (event, d) {
+                                // Only add click functionality for non-NA cells
+                                if (d.value && d.value !== "") {
+                                    window.location.href = `ma_plot.html?comparison=${encodeURIComponent(comparisonMap.get(d.comparison))}&cellType=${encodeURIComponent(d.cellType)}`;
+                                }
+                            });
+
+                        // Add text to cells (except for missing values)
+                        cells
+                            .filter((d) => d.value && d.value !== "")
+                            .append("text")
+                            .attr("class", "cell-text")
+                            .attr("x", (d) => x(d.cellType) + x.bandwidth() / 2)
+                            .attr("y", (d) => y(d.comparison) + y.bandwidth() / 2)
+                            .text((d) => Math.round(+d.value)) // Round to integer
+                            .style("fill", (d) => {
+                                const cellColor = getColor(d.value);
+                                return isLightColor(cellColor) ? "black" : "white";
+                            });
+
+                        // Add column labels at the bottom
+                        svg.append("g")
+                            .attr("transform", `translate(0, ${height + 10})`)
+                            .selectAll("text")
+                            .data(cellTypes)
+                            .enter()
+                            .append("text")
+                            .attr("class", "column-label")
+                            .attr("x", 0)
+                            .attr("y", 0)
+                            .attr("text-anchor", "end")
+                            .attr(
+                                "transform",
+                                (d) =>
+                                    `translate(${x(d) + x.bandwidth() / 2}, 0) rotate(-40, 0, 0)`,
+                            )
+                            .text((d) => CELL_TYPE_MAP[d]);
+
+                        // Add legend
+                        const legendWidth = 20;
+                        const legendHeight = 200;
+                        const legendPosition = { x: width + 30, y: 20 }; // Move legend further right
+
+                        // Create gradient for legend
+                        const defs = svg.append("defs");
+                        const linearGradient = defs
+                            .append("linearGradient")
+                            .attr("id", "linear-gradient")
+                            .attr("x1", "0%")
+                            .attr("y1", "100%")
+                            .attr("x2", "0%")
+                            .attr("y2", "0%");
+
+                        // Set gradient stops
+                        const legendStops = [0, 1, 10, 100, 1000, maxValue];
+                        legendStops.forEach((stop) => {
+                            const offset = stop === 0 ? 0 : Math.log1p(stop) / Math.log1p(maxValue);
+                            // For zero stop, use the same color as for value 1
+                            const color =
+                                stop === 0
+                                    ? colorScale(Math.log1p(1))
+                                    : colorScale(Math.log1p(stop));
+                            linearGradient
+                                .append("stop")
+                                .attr("offset", `${offset * 100}%`)
+                                .attr("stop-color", color);
+                        });
+
+                        // Create legend rectangle
+                        svg.append("rect")
+                            .attr("x", legendPosition.x)
+                            .attr("y", legendPosition.y)
+                            .attr("width", legendWidth)
+                            .attr("height", legendHeight)
+                            .style("fill", "url(#linear-gradient)");
+
+                        // Add legend axis
+                        const legendScale = d3
+                            .scaleLog()
+                            .domain([1, maxValue])
+                            .range([legendHeight, 0]);
+
+                        const legendAxis = d3
+                            .axisRight(legendScale)
+                            .tickValues(
+                                [1, 10, 100, 1000, Math.max(1000, maxValue)].filter(
+                                    (d) => d <= maxValue,
+                                ),
+                            )
+                            .tickFormat(d3.format(",.0f"));
+
+                        svg.append("g")
+                            .attr(
+                                "transform",
+                                `translate(${legendPosition.x + legendWidth}, ${legendPosition.y})`,
+                            )
+                            .call(legendAxis);
+
+                        // Add legend title
+                        svg.append("text")
+                            .attr("class", "legend-text")
+                            .attr("x", legendPosition.x)
+                            .attr("y", legendPosition.y - 10)
+                            .text("DEG count");
+                    });
+                });
+            }
+
+            // Load default data when the page loads
+            document.addEventListener("DOMContentLoaded", function () {
+                loadData("merged_counts.csv.gz");
+            });
+        </script>
+    </body>
+</html>

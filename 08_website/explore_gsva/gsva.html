@@ -1,0 +1,156 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta http-equiv="content-type" content="text/html; charset=utf8"/>
+    <title>MRC1+C1QA+ GSVA exploration</title>
+    <link rel="stylesheet" href="../css/morpheus-latest.min.css">
+    <style type="text/css">
+        html {
+          margin: 0; padding: 0 30px 0 0;
+          font-size: 20px; font-family: Helvetica, Verdana, sans-serif;
+        }
+        body {margin: 0; padding: 0; background: #f2edf7;}
+        a {color: #1385cb}
+        a:visited {color: #0e74bc}
+        .header {margin-bottom: 10px;}
+        .header h2, .header h3 {font-weight: normal; text-align: center; margin: 0 0 6px 0;}
+        #morpheus-container {
+            width: auto;
+            height: auto;
+            min-width: 1120px;
+            min-height: 900px;
+            visibility: hidden;
+        }
+        .morpheus > .nav {display:none}
+      </style>
+    <script type="text/javascript" src="../morpheus-external-latest.min.js"></script>
+    <script src="../morpheus-latest.min.js"></script>
+</head>
+<body>
+    <div id="morpheus-container"></div>
+
+    <script type="text/javascript">
+        const TS = Math.floor(Date.now() / 1000);
+        const urlParams = new URLSearchParams(window.location.search);
+        const cellType = urlParams.get("cell_type");
+        window.heatmap = new morpheus.HeatMap({
+            el: document.querySelector('#morpheus-container'),
+            name: "MRC1+C1QA+",
+            dataset: `${cellType}_gsva.tsv?TS=${TS}`,
+            width: 1120,
+            height: 800,
+            closeable: false,
+            toolbar: [
+                'Search Columns',
+                'Dimensions',
+                'Zoom',
+                'Options',
+                'Save Image',
+                'Filter',
+                'Sort/Group',
+                'Color Key'
+            ],
+            rows: [
+                {field: 'source'},
+                {field: "Gene set", display: ["text"]}
+            ],
+            columns: [
+                {field: "id", display: ["color"]},
+                {field: 'Sample group', display: ["color"]},
+                {field: 'SOFA score', display: ["color"]},
+                {field: 'Pathogens', display: ["color"]},
+                {field: 'Days on ventilator (log)', display: ["color"]},
+                {field: 'Pneumonia episode type', display: ["color"]},
+                {field: 'Mortality', display: ["color"]},
+                {field: 'Discharge disposition', display: ["color"]},
+                {field: 'Immunocompromised', display: ["color"]},
+                {field: 'ICU antibiotic days to date', display: ["color"]},
+                {field: 'ICU steroid dose to date', display: ["color"]},
+                {field: 'Pathogen groups', display: ["color"]},
+                {field: 'VAP cure in 7 days', display: ["color"]},
+                {field: 'NPC category', display: ["color"]},
+                {field: 'Flow-cytometry clusters', display: ["color"]},
+                {field: 'scRNA-seq clusters', display: ["color"]},
+                {field: 'Sex', display: ["color"]},
+            ],
+            columnColorModel: {
+                "Pathogen_groups": {
+                    'Healthy': "#5cd061",
+                    'NPC': "#256b33",
+                    'Early SARS-CoV-2' : "#e51d23",
+                    'Late SARS-CoV-2': '#f4868a',
+                    'Early SARS-CoV-2; Gram+' : "#ffc326",
+                    'Late SARS-CoV-2; Gram+': '#936e10',
+                    'Pseudomonas aeruginosa; SARS-CoV-2': "#9858d6",
+                    'Pseudomonas; SARS-CoV-2': "#9858d6",
+                    'Gram+': "#013265",
+                    'Pseudomonas aeruginosa': "#fb4e93",
+                    'Pseudomonas': "#fb4e93",
+                    'Gram-*; Gram+': "#1ceaf9",
+                    'Gram-*': "#770c2e"
+                },
+                "pathogen_groups": {
+                    'Healthy': "#5cd061",
+                    'NPC': "#256b33",
+                    'SARS-CoV-2' : "#e51d23",
+                    'SARS-CoV-2; Gram+' : "#ffc326",
+                    'Pseudomonas aeruginosa; SARS-CoV-2': "#9858d6",
+                    'Pseudomonas; SARS-CoV-2': "#9858d6",
+                    'Gram+': "#013265",
+                    'Pseudomonas aeruginosa': "#fb4e93",
+                    'Pseudomonas': "#fb4e93",
+                    'Gram-*; Gram+': "#1ceaf9",
+                    'Gram-*': "#770c2e"
+                },
+                "Days on ventilator (log)": {
+                    "values": [0, 10],
+                    "colors": ["#f7fbff", "#08306b"]
+                },
+                "NPC category": {
+                    "Not infected": "#5697c9",
+                    "Extrapulmonary infection": "#347f39",
+                    "Non-infectious alveolitis": "#ef6621"
+                },
+                "Generic": {
+                    "Yes": "#333",
+                    "No": "#ddd"
+                }
+            },
+            columnAnnotations: [{
+                file: `meta.tsv?TS=${TS}`,
+                datasetField: "id",
+                fileField: "bal_barcode"
+            }],
+            rowAnnotations: [{
+                file: `pathways.tsv?TS=${TS}`,
+                datasetField: "id",
+                fileField: "id"
+            }],
+            tools: [{ name: "Hierarchical Clustering", params: {cluster: "Rows and columns", background: false} }],
+            loadedCallback: function() {
+                const toShow = [
+                    'Sample group', 'Pathogen groups', 'Mortality', 'Flow-cytometry clusters', 'scRNA-seq clusters', 'Sex'
+                ];
+                const tracks = [];
+                window.heatmap.columnTracks.forEach(function(track) {
+                    const name = track.name;
+                    let visible = false;
+                    if (toShow.indexOf(name) > -1) {
+                        visible = true;
+                    }
+                    tracks.push({
+                        name: name,
+                        isColumns: true,
+                        visible: visible
+                    });
+                });
+                window.heatmap.setTrackVisibility(tracks);
+                document.getElementById('morpheus-container').style.visibility = 'visible';
+                window.heatmap.fitToWindow({fitRows: true, fitColumns: true, repaint: true});
+            }
+        });
+    </script>
+</body>
+</html>

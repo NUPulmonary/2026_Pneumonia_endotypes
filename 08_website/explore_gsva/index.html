@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>
+            Pathogen-specific host responses define distinct pneumonia endotypes in the human lung
+            &rarr; DEGs
+        </title>
+        <link rel="stylesheet" href="../main.css" />
+        <style>
+            .body {
+                margin: 0 50px 0 50px;
+                max-width: max-content;
+                font-size: 15px;
+            }
+            .container {
+                display: flex;
+                align-items: flex-start;
+            }
+            #visualization, .container iframe {
+                width: 1120px;
+                min-width: 1120px;
+                height: 900px;
+                border: 0;
+            }
+            .container iframe {
+                display: none;
+            }
+            iframe.visible {
+                display: block;
+            }
+            .side-info {
+                width: 300px;
+                margin-left: 0;
+            }
+            #cell-types {
+                font-size: 14px;
+            }
+            .cell-type-item {
+                padding: 0px 4px;
+                margin: 1px 0;
+                cursor: pointer;
+                border-radius: 2px;
+                border: 1px solid transparent;
+            }
+            .cell-type-item:hover {
+                background-color: #f8f4e8;
+            }
+            .cell-type-selected {
+                background-color: #f3ecd8;
+                border: 1px solid var(--border);
+            }
+            .cell-type-selected:hover {
+                background-color: #f3ecd8;
+            }
+        </style>
+        <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    </head>
+    <body class="compact">
+        <div class="nav">
+            <a href="https://sqlifts.fsm.northwestern.edu/public/">Division website</a>
+            &rarr;
+            <a href="../#b"
+                >Pathogen-specific host responses define distinct pneumonia endotypes in the human
+                lung</a
+            >
+        </div>
+        <div class="header">
+            <h1>GSVA explorer</h1>
+            <div class="abstract">
+                <p>
+                    Click on cell type on the right to load GSVA heatmap.<br />
+                    Select additional sample metadata in View &rarr; Options &rarr; Annotations.
+                </p>
+            </div>
+        </div>
+        <div class="body">
+            <div class="container">
+                <div id="visualization">
+                </div>
+
+                <div id="cell-type-list" class="side-info">
+                    <h3>Cell types</h3>
+                    <div id="cell-types"></div>
+                </div>
+            </div>
+        </div>
+        <script type="module">
+            import * as main from "../main.js";
+            Object.keys(main).forEach((k) => (window[k] = main[k]));
+
+            const AVAIL_CELL_TYPES = [
+                'B cells',
+                'CD4 T cells',
+                'CD8 T cells',
+                'Ciliated cells',
+                'Classical monocytes-1 CCR2',
+                'Classical monocytes-2 IL1B',
+                'DC2',
+                'MRC1+C1QA+ AM',
+                'MRC1+C1QA– AM',
+                'NUPR1+ AM',
+                'Interstitial macrophages',
+                'Plasma cells',
+                'Proliferating CD4 T cells',
+                'Proliferating CD8 T cells',
+                'Proliferating NUPR1+ AM',
+                'Proliferating plasma cells',
+                'Tregs',
+                'γδT cells'
+            ];
+
+            for (let ct of CELL_TYPE_ORDER) {
+                if (AVAIL_CELL_TYPES.includes(ct)) {
+                    d3.select('#cell-type-list').append('div')
+                        .classed('cell-type-item', true)
+                        .html(ct)
+                        .on('click', function(e) {
+                            selectCellType(e.target);
+                        })
+                }
+            }
+
+            function selectCellType(el) {
+                d3.select('.cell-type-selected').classed('cell-type-selected', false);
+                d3.select(el).classed('cell-type-selected', true);
+                const ct = encodeURIComponent(el.innerHTML);
+
+                d3.selectAll('#visualization *').remove();
+
+                // Add loading indicator
+                const loadingDiv = d3
+                    .select("#visualization")
+                    .append("div")
+                    .attr("class", "loading").html(`
+                    <div class="loading-spinner"></div>
+                    <div>Loading GSVA information...</div>
+                    `);
+
+                const iframe = d3.select('#visualization')
+                    .append('iframe')
+                    .attr('src', function() {
+                        return `gsva.html?cell_type=${ct}`;
+                    });
+
+                iframe.on('load', function(e) {
+                    window.setTimeout(function() {
+                        loadingDiv.remove();
+                        iframe.classed('visible', true);
+                    }, 1000);
+                });
+            };
+
+            selectCellType(d3.select('.cell-type-item').node());
+        </script>
+    </body>
+</body>
+</html>

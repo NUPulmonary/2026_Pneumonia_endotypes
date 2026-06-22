@@ -1,0 +1,753 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>
+            Pathogen-specific host responses define distinct pneumonia endotypes in the human lung
+            &rarr; MOFA
+        </title>
+        <link rel="stylesheet" href="../main.css" />
+        <style>
+            .body {
+                margin: 0 50px 0 50px;
+                max-width: max-content;
+                font-size: 15px;
+            }
+            .container {
+                /* overflow: auto; */
+                display: flex;
+                align-items: flex-start;
+            }
+            #boxplots {
+                display: flex;
+                margin-top: 15px;
+            }
+        </style>
+        <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    </head>
+    <body class="compact">
+        <div class="nav">
+            <a href="https://sqlifts.fsm.northwestern.edu/public/">Division website</a>
+            &rarr;
+            <a href="../#b"
+                >Pathogen-specific host responses define distinct pneumonia endotypes in the human
+                lung</a
+            >
+        </div>
+        <div class="header">
+            <h1>MOFA explorer</h1>
+            <div class="abstract">
+                <p>
+                    Click on factor names at the bottom to explore factor GSEA.<br />
+                    Click on a cell to explore distribution of factor values across covariates.<br />
+                    Black line over boxplots denotes significant Mann-Whitney U test results with
+                    FDR correction.
+                </p>
+            </div>
+        </div>
+        <div class="body">
+            <div class="container">
+                <div id="categorical"></div>
+                <div id="numerical"></div>
+                <div style="margin-left: 50px; font-size: 14px">
+                    <h3>MOFA factor rotations:</h3>
+                    <ol>
+                        <li>Pathogen groups: Early SARS-CoV-2</li>
+                        <li>Bacteria only detected</li>
+                        <li>Bacteria detected</li>
+                        <li>Immunocompromised</li>
+                        <li>Female sex</li>
+                        <li>Mortality</li>
+                        <li>ECMO</li>
+                        <li>Episode category: CAP</li>
+                        <li>VAP cure in 7 days</li>
+                        <li>Viral, <span id="bac-word" style="cursor:pointer">bacterial</span> or mixed</li>
+                    </ol>
+                </div>
+            </div>
+            <div id="boxplots"></div>
+            <script type="module">
+                import * as main from "../main.js";
+                Object.keys(main).forEach((k) => (window[k] = main[k]));
+
+                const TS = Math.floor(Date.now() / 1000);
+                const FACTOR_ORDER = [7, 10, 9, 6, 4, 1, 5, 3, 2, 8];
+
+                // Function to format gene list
+                function formatGeneList(geneString) {
+                    if (!geneString || geneString.trim() === "") {
+                        return "No genes in leading edge";
+                    }
+
+                    // Format the gene list
+                    // Assuming genes are separated by some delimiter like comma or space
+                    const genes = geneString.split(/;/).filter((gene) => gene.trim() !== "");
+
+                    if (genes.length === 0) {
+                        return "No genes in leading edge";
+                    }
+
+                    return genes.join(", ");
+                }
+
+                // Set up dimensions and margins
+                const dimensions = {
+                    top: 2,
+                    right: 150,
+                    bottom: 50,
+                    left: 220,
+                    width: 600,
+                    height: 600,
+                };
+
+                // Create tooltip div
+                const tooltip = d3
+                    .select("body")
+                    .append("div")
+                    .attr("class", "tooltip")
+                    .style("opacity", 0);
+
+                // CSV URL based on comparison parameter
+                const csvUrl = `03_cat_assoc.csv?ts=${TS}`;
+                d3.csv(csvUrl)
+                    .then(function (data) {
+                        displayHeatmap(data, d3.select("#categorical"), dimensions, {
+                            colorScale: (extent) => {
+                                return d3
+                                    .scaleSequential()
+                                    .domain(extent)
+                                    .interpolator(d3.interpolateBlues);
+                            },
+                            mouseover: (event, d) => {
+                                tooltip.transition().duration(200).style("opacity", 0.9);
+
+                                let tooltipText = `
+<strong>Covariate:</strong> ${d.covariate}<br>
+<strong>Factor:</strong> ${d.factorIndex + 1}<br>
+<strong>–log10(padj):</strong> ${d.value.colorValue ? formatNumber(d.value.colorValue.toFixed(3)) : "N/A"}`;
+
+                                tooltip
+                                    .html(tooltipText)
+                                    .style("left", event.pageX + 10 + "px")
+                                    .style("top", event.pageY - 28 + "px");
+                            },
+                            mouseout: (event, d) => {
+                                tooltip.transition().duration(500).style("opacity", 0);
+                            },
+                            click: (event, d) => {
+                                drawBoxplots(d.factor, d.covariate);
+                                // Scroll to boxplots
+                                document
+                                    .getElementById("boxplots")
+                                    .scrollIntoView({ behavior: "smooth", block: "start" });
+                            },
+                            columnClick: (event, d, factorIdx) => {
+                                let factorName = `Factor ${factorIdx + 1}`;
+                                window.location.href = `factor.html?factor=${encodeURIComponent(factorName)}`;
+                            },
+                            displayCovariate: (name) => {
+                                if (name == 'Healthy / NPC / Viral, bacterial or mixed') {
+                                    name = 'Healthy / Viral, bacterial or mixed';
+                                }
+                                return displayCovariate(name);
+                            }
+                        });
+                    })
+                    .catch((error) => {
+                        console.error("Error loading CSV:", error);
+                        document.getElementById("categorical").innerHTML =
+                            `<p>Error loading data: ${error.message}</p>`;
+                    });
+
+                // Load numerical association data
+                const corrUrl = `03_num_assoc_corr.csv?ts=${TS}`;
+                const pvalUrl = `03_num_assoc_pval.csv?ts=${TS}`;
+
+                Promise.all([d3.csv(corrUrl), d3.csv(pvalUrl)])
+                    .then(function ([corrData, pvalData]) {
+                        displayHeatmap([corrData, pvalData], d3.select("#numerical"), dimensions, {
+                            logPval: false,
+                            colorScale: (extent) => {
+                                return d3
+                                    .scaleDiverging()
+                                    .domain([extent[1], 0, extent[0]])
+                                    .interpolator(d3.interpolateRdBu)
+                                    .unknown("#ccc");
+                            },
+                            mouseover: (event, d) => {
+                                tooltip.transition().duration(200).style("opacity", 0.9);
+
+                                let tooltipText = `
+<strong>Covariate:</strong> ${displayCovariate(d.covariate)}<br>
+<strong>Factor:</strong> ${d.factorIndex + 1}<br>
+<strong>Spearman <i>ρ</i>:</strong> ${formatNumber(d.value.colorValue.toFixed(3))}<br>
+<strong>FDR p-value:</strong> ${formatNumber(d.value.pval.toFixed(4))}`;
+
+                                tooltip
+                                    .html(tooltipText)
+                                    .style("left", event.pageX + 10 + "px")
+                                    .style("top", event.pageY - 28 + "px");
+                            },
+                            mouseout: (event, d) => {
+                                tooltip.transition().duration(500).style("opacity", 0);
+                            },
+                            legend: (extent, width) => {
+                                const legendColorScale = d3
+                                    .scaleDiverging()
+                                    .domain([extent[0], 0, extent[1]])
+                                    .interpolator(
+                                        d3.interpolateRgbBasis(d3.schemeRdBu[11].reverse()),
+                                    );
+                                return Legend(legendColorScale, {
+                                    title: "Spearman ρ",
+                                    width: width,
+                                });
+                            },
+                            click: (event, d) => {
+                                drawScatterplot(
+                                    d.factor,
+                                    d.covariate,
+                                    d.value.colorValue,
+                                    d.value.pval,
+                                );
+                                // Scroll to boxplots
+                                document
+                                    .getElementById("boxplots")
+                                    .scrollIntoView({ behavior: "smooth", block: "start" });
+                            },
+                            columnClick: (event, d, factorIdx) => {
+                                let factorName = `Factor ${factorIdx + 1}`;
+                                window.location.href = `factor.html?factor=${encodeURIComponent(factorName)}`;
+                            },
+                            displayCovariate: (x) => {
+                                if (x == 'Procalcitonin ff') {
+                                    x = 'Procalcitonin';
+                                }
+                                if (x == 'LDH ff') {
+                                    x = 'LDH';
+                                }
+                                return displayCovariate(x);
+                            }
+                        });
+                    })
+                    .catch((error) => {
+                        console.error("Error loading numerical CSV:", error);
+                        document.getElementById("numerical").innerHTML =
+                            `<p>Error loading data: ${error.message}</p>`;
+                    });
+
+                // Load model data for boxplots
+                let modelData = null;
+                d3.csv(`03_model_data.csv?ts=${TS}`)
+                    .then((data) => {
+                        modelData = data;
+                        console.log("Model data loaded:", modelData.length, "rows");
+                    })
+                    .catch((error) => {
+                        console.error("Error loading model data:", error);
+                    });
+
+                let boxplotStats = null;
+                d3.csv(`03_all_cat_stats.csv?ts=${TS}`)
+                    .then((data) => {
+                        boxplotStats = data;
+                        console.log("All boxplot stats loaded:", data.length, "rows");
+                    })
+                    .catch((error) => {
+                        console.error("Error loading all boxplot stats:", error);
+                    });
+
+                // Function to draw boxplots with jittered points
+                function drawBoxplots(factor, covariate) {
+                    if (!modelData) {
+                        console.error("Model data not loaded yet");
+                        return;
+                    }
+
+                    factor = factor.replace(" ", "_").toLowerCase();
+                    let factorNum = parseInt(factor.split("_")[1]);
+                    let factorIndex = FACTOR_ORDER.indexOf(factorNum) + 1;
+
+                    // Map covariate name to CSV column name
+                    const covariateCol = mapCovariateName(covariate, "toCSV");
+                    const factorCol = `${factor}_score`;
+
+                    // Filter data with valid values
+                    const validData = modelData.filter(
+                        (d) =>
+                            d[factorCol] &&
+                            d[factorCol] !== "" &&
+                            d[covariateCol] &&
+                            d[covariateCol] !== "",
+                    );
+
+                    if (validData.length === 0) {
+                        d3.select("#boxplots")
+                            .append("p")
+                            .text(`No valid data found for ${factor} and ${covariate}`);
+                        return;
+                    }
+
+                    // Group data by covariate values
+                    const groupedData = d3.group(validData, (d) => d[covariateCol]);
+
+                    // Sort categories with "NA" last
+                    const categories = Array.from(groupedData.keys()).sort((a, b) => {
+                        if (a === "NA" || a === "-1" || a === "discard") return 1;
+                        if (b === "NA" || b === "-1" || b === "discard") return -1;
+                        return a.localeCompare(b);
+                    });
+
+                    // Prepare boxplot data
+                    const boxplotData = categories.map((category) => {
+                        const categoryData = groupedData.get(category);
+                        const values = categoryData.map((d) => +d[factorCol]);
+                        const stats = calculateBoxplotStats(values);
+                        return {
+                            category,
+                            values,
+                            data: categoryData, // Store original data for sample IDs
+                            ...stats,
+                        };
+                    });
+
+                    // Set up dimensions
+                    const dimensions = {
+                        top: 0,
+                        right: 100,
+                        bottom: 250,
+                        left: 100,
+                        width: 500,
+                        height: 300,
+                    };
+
+                    // Create scales
+                    const xScale = d3
+                        .scaleBand()
+                        .domain(categories)
+                        .range([0, dimensions.width])
+                        .paddingInner(0.4)
+                        .paddingOuter(0.05);
+
+                    const allValues = boxplotData.flatMap((d) => d.values);
+                    const yScale = d3
+                        .scaleLinear()
+                        .domain([d3.min(allValues), d3.max(allValues)])
+                        .nice()
+                        .range([dimensions.height, 0]);
+
+                    const { graph, header } = setupGraph(
+                        d3.select("#boxplots"),
+                        dimensions,
+                        xScale,
+                        getCovariateNameForGraph(covariate),
+                        yScale,
+                        `Factor ${factorIndex} score`,
+                        `Factor ${factorIndex} by ${getCovariateNameForGraph(covariate)}`,
+                        {
+                            modifyXAxis: (el) => {
+                                el.selectAll("text").call((texts) => {
+                                    const bandwidth = xScale.bandwidth();
+                                    let fit = true;
+                                    texts.each((t, i, nodes) => {
+                                        if (nodes[i].getBBox().width > bandwidth + 4) {
+                                            fit = false;
+                                        }
+                                    });
+                                    if (!fit) {
+                                        texts
+                                            .attr("transform", "rotate(-30)")
+                                            .style("text-anchor", "end")
+                                            .attr("dx", -5);
+                                    }
+                                });
+                            },
+                        },
+                    );
+
+                    const boxWidth = xScale.bandwidth();
+
+                    // Draw significance lines between boxplots
+                    let statsYOffset = header.node().getBBox().height + 20;
+                    const stats = boxplotStats.filter((d) => {
+                        return (
+                            d.factor == factorCol && d.covariate == covariateCol && d.padj < 0.05
+                        );
+                    });
+                    stats.forEach((d) => {
+                        header
+                            .append("line")
+                            .attr("x1", xScale(d.group1) + boxWidth / 2)
+                            .attr("x2", xScale(d.group2) + boxWidth / 2)
+                            .attr("y1", statsYOffset)
+                            .attr("y2", statsYOffset)
+                            .attr("stroke", "#65717b")
+                            .attr("stroke-width", 3)
+                            .on("mouseover", function () {
+                                d3.select(this).attr("stroke", "#ff5533");
+
+                                tooltip
+                                    .html(
+                                        `
+                Mann-Whitney U test for <br/>
+                ${d.group1} vs. ${d.group2}<br/>
+                FDR p-value: ${formatNumber(parseFloat(d.padj).toFixed(5))}
+              `,
+                                    )
+                                    .style("left", event.pageX + 10 + "px")
+                                    .style("top", event.pageY - 28 + "px")
+                                    .style("opacity", 0.9);
+                            })
+                            .on("mouseout", function () {
+                                d3.select(this).attr("stroke", "#65717b");
+
+                                tooltip.style("opacity", 0);
+                            });
+                        statsYOffset += 5;
+                    });
+
+                    const headerHeight = header.node().getBBox().height;
+                    graph.attr("transform", `translate(${dimensions.left}, ${headerHeight + 12})`);
+
+                    // Draw boxplots for each category
+                    boxplotData.forEach((d) => {
+                        const x = xScale(d.category);
+                        const center = x + boxWidth / 2;
+
+                        // Draw vertical line (whiskers)
+                        graph
+                            .append("line")
+                            .attr("x1", center)
+                            .attr("x2", center)
+                            .attr("y1", yScale(d.min))
+                            .attr("y2", yScale(d.max))
+                            .attr("stroke", "black")
+                            .attr("stroke-width", 1);
+
+                        // Draw box
+                        graph
+                            .append("rect")
+                            .attr("x", x)
+                            .attr("y", yScale(d.q3))
+                            .attr("width", boxWidth)
+                            .attr("height", yScale(d.q1) - yScale(d.q3))
+                            .attr("fill", "#e8f6fc")
+                            .attr("stroke", "black")
+                            .attr("stroke-width", 1)
+                            .attr("opacity", 1);
+
+                        // Draw median line
+                        graph
+                            .append("line")
+                            .attr("x1", x)
+                            .attr("x2", x + boxWidth)
+                            .attr("y1", yScale(d.median))
+                            .attr("y2", yScale(d.median))
+                            .attr("stroke", "black")
+                            .attr("stroke-width", 2);
+
+                        // Draw min/max caps
+                        const capWidth = boxWidth * 0.3;
+                        graph
+                            .append("line")
+                            .attr("x1", center - capWidth / 2)
+                            .attr("x2", center + capWidth / 2)
+                            .attr("y1", yScale(d.min))
+                            .attr("y2", yScale(d.min))
+                            .attr("stroke", "black")
+                            .attr("stroke-width", 1);
+
+                        graph
+                            .append("line")
+                            .attr("x1", center - capWidth / 2)
+                            .attr("x2", center + capWidth / 2)
+                            .attr("y1", yScale(d.max))
+                            .attr("y2", yScale(d.max))
+                            .attr("stroke", "black")
+                            .attr("stroke-width", 1);
+
+                        // Draw jittered points
+                        const jitterWidth = boxWidth * 0.6;
+                        d.values.forEach((value, i) => {
+                            const jitter = (Math.random() - 0.5) * jitterWidth;
+                            const sampleData = d.data[i];
+                            const sampleId = sampleData[""] || sampleData["sample_id"] || "Unknown";
+
+                            graph
+                                .append("circle")
+                                .attr("cx", center + jitter)
+                                .attr("cy", yScale(value))
+                                .attr("r", 2.5)
+                                .attr("fill", "black")
+                                .attr("opacity", 0.5)
+                                .style("cursor", "pointer")
+                                .on("mouseover", function (event) {
+                                    d3.select(this)
+                                        .attr("r", 4)
+                                        .attr("fill", "#ba4e07")
+                                        .attr("opacity", 0.9);
+
+                                    tooltip.transition().duration(200).style("opacity", 0.9);
+
+                                    tooltip
+                                        .html(
+                                            `
+                <strong>Sample ID:</strong> ${sampleId}<br>
+                <strong>Factor ${factorIndex} score:</strong> ${formatNumber(value.toFixed(3))}<br>
+                <strong>${getCovariateNameForGraph(covariate)}:</strong> ${d.category}
+              `,
+                                        )
+                                        .style("left", event.pageX + 10 + "px")
+                                        .style("top", event.pageY - 28 + "px");
+                                })
+                                .on("mouseout", function () {
+                                    d3.select(this)
+                                        .attr("r", 2.5)
+                                        .attr("fill", "black")
+                                        .attr("opacity", 0.5);
+
+                                    tooltip.transition().duration(500).style("opacity", 0);
+                                });
+                        });
+                    });
+                }
+
+                // Function to draw scatterplot for numerical covariates
+                function drawScatterplot(factor, covariate, corrCoef, pval) {
+                    if (!modelData) {
+                        console.error("Model data not loaded yet");
+                        return;
+                    }
+
+                    factor = factor.replace(" ", "_").toLowerCase();
+
+                    let factorNum = parseInt(factor.split("_")[1]);
+                    let factorIndex = FACTOR_ORDER.indexOf(factorNum) + 1;
+
+                    // Map covariate name to CSV column name
+                    const covariateCol = mapCovariateName(covariate, "toCSV");
+                    const factorCol = `${factor}`;
+
+                    // Filter data with valid values
+                    const validData = modelData.filter(
+                        (d) =>
+                            d[factorCol] &&
+                            d[factorCol] !== "" &&
+                            !isNaN(+d[factorCol]) &&
+                            d[covariateCol] &&
+                            d[covariateCol] !== "" &&
+                            !isNaN(+d[covariateCol]),
+                    );
+
+                    if (validData.length === 0) {
+                        d3.select("#boxplots")
+                            .append("p")
+                            .text(`No valid data found for ${factor} and ${covariate}`);
+                        return;
+                    }
+
+                    // Extract values
+                    const data = validData.map((d) => ({
+                        x: +d[factorCol],
+                        y: +d[covariateCol],
+                        sampleId: d[""],
+                    }));
+
+                    // Set up dimensions
+                    const dimensions = {
+                        top: 0,
+                        right: 20,
+                        bottom: 250,
+                        left: 100,
+                        width: 500,
+                        height: 400,
+                    };
+
+                    // Create scales
+                    const xScale = d3
+                        .scaleLinear()
+                        .domain(d3.extent(data, (d) => d.x))
+                        .nice()
+                        .range([0, dimensions.width]);
+
+                    const yScale = d3
+                        .scaleLinear()
+                        .domain(d3.extent(data, (d) => d.y))
+                        .nice()
+                        .range([dimensions.height, 0]);
+
+                    const { graph, header } = setupGraph(
+                        d3.select("#boxplots"),
+                        dimensions,
+                        xScale,
+                        `Factor ${factorIndex} score`,
+                        yScale,
+                        displayCovariate(covariate),
+                        `Factor ${factorIndex} vs. ${displayCovariate(covariate)}`,
+                    );
+
+                    // Add points
+                    graph
+                        .selectAll("circle")
+                        .data(data)
+                        .enter()
+                        .append("circle")
+                        .attr("cx", (d) => xScale(d.x))
+                        .attr("cy", (d) => yScale(d.y))
+                        .attr("r", 2.5)
+                        .attr("fill", "black")
+                        .attr("opacity", 0.5)
+                        .style("cursor", "pointer")
+                        .on("mouseover", function (event, d) {
+                            d3.select(this)
+                                .attr("r", 6)
+                                .attr("fill", "#ba4e07")
+                                .attr("opacity", 0.9);
+
+                            tooltip.transition().duration(200).style("opacity", 0.9);
+
+                            tooltip
+                                .html(
+                                    `
+            <strong>Sample ID:</strong> ${d.sampleId}<br>
+            <strong>Factor ${factorIndex} score:</strong> ${formatNumber(d.x.toFixed(3))}<br>
+            <strong>${displayCovariate(covariate)}:</strong> ${formatNumber(d.y.toFixed(3))}
+          `,
+                                )
+                                .style("left", event.pageX + 10 + "px")
+                                .style("top", event.pageY - 28 + "px");
+                        })
+                        .on("mouseout", function () {
+                            d3.select(this)
+                                .attr("r", 2.5)
+                                .attr("fill", "#black")
+                                .attr("opacity", 0.6);
+
+                            tooltip.transition().duration(500).style("opacity", 0);
+                        });
+
+                    // Add regression line
+                    const xMean = d3.mean(data, (d) => d.x);
+                    const yMean = d3.mean(data, (d) => d.y);
+                    const xStdDev = d3.deviation(data, (d) => d.x);
+                    const yStdDev = d3.deviation(data, (d) => d.y);
+
+                    // Calculate Pearson correlation
+                    const correlation = d3.mean(
+                        data,
+                        (d) => ((d.x - xMean) / xStdDev) * ((d.y - yMean) / yStdDev),
+                    );
+
+                    // Calculate regression line slope and intercept
+                    const slope = correlation * (yStdDev / xStdDev);
+                    const intercept = yMean - slope * xMean;
+
+                    const xExtent = d3.extent(data, (d) => d.x);
+                    const lineData = [
+                        { x: xExtent[0], y: slope * xExtent[0] + intercept },
+                        { x: xExtent[1], y: slope * xExtent[1] + intercept },
+                    ];
+
+                    graph
+                        .append("line")
+                        .attr("x1", xScale(lineData[0].x))
+                        .attr("y1", yScale(lineData[0].y))
+                        .attr("x2", xScale(lineData[1].x))
+                        .attr("y2", yScale(lineData[1].y))
+                        .attr("stroke", "#d62728")
+                        .attr("stroke-width", 2)
+                        .attr("opacity", 0.7);
+
+                    // Add correlation text
+                    d3.select("#boxplots").append("div").html(`
+          Pearson <i>ρ</i> = ${formatNumber(correlation.toFixed(3))}<br/>
+          Spearman <i>ρ</i> = ${formatNumber(corrCoef.toFixed(3))}<br/>
+          FDR p-value = ${formatNumber(pval.toFixed(5))}
+        `);
+                }
+
+const BAC = [
+    [0,0,0,1,0,1,0,1,0,0],
+    [0,0,0,0,1,1,1,0,0,0],
+    [0,1,0,1,2,3,2,1,0,1],
+    [0,0,1,2,3,3,3,2,1,0],
+    [1,0,1,2,3,3,3,2,1,0],
+    [0,1,2,3,1,1,3,3,2,1],
+    [1,1,3,1,4,4,1,3,3,1],
+    [0,1,2,1,4,4,1,3,2,1],
+    [1,1,3,3,1,1,3,3,3,1],
+    [0,1,2,3,3,3,3,3,2,1],
+    [1,1,3,3,3,3,1,3,3,1],
+    [0,1,2,3,3,1,4,1,2,1],
+    [1,0,1,2,3,3,1,2,1,0],
+    [0,0,1,2,3,3,3,2,1,0],
+    [0,1,0,1,2,3,2,1,0,1],
+    [0,0,0,0,1,1,1,0,0,0],
+    [0,0,0,1,0,1,0,1,0,0]
+];
+const BACC = ['#f2f8fe', '#224420', '#cbe8a4', '#62b34c', '#3c7e5d'];
+
+                let bacClicks = 0;
+                document.getElementById('bac-word').addEventListener('click', () => {
+                    bacClicks++;
+                    if (bacClicks === 10) drawBac();
+                });
+
+                function drawBac() {
+                    const catDiv = document.getElementById('categorical');
+                    const originalSvg = catDiv.querySelector('svg');
+                    if (!originalSvg) return;
+
+                    const clonedSvg = originalSvg.cloneNode(true);
+                    catDiv.style.position = 'relative';
+                    clonedSvg.style.position = 'absolute';
+                    clonedSvg.style.top = '0';
+                    clonedSvg.style.left = '0';
+                    clonedSvg.style.pointerEvents = 'none';
+                    catDiv.appendChild(clonedSvg);
+
+                    const allRects = Array.from(clonedSvg.querySelectorAll('rect'));
+
+                    // Find most common cell size to isolate data cells
+                    const dimCount = {};
+                    allRects.forEach(r => {
+                        const w = Math.round(parseFloat(r.getAttribute('width') || 0));
+                        const h = Math.round(parseFloat(r.getAttribute('height') || 0));
+                        if (w > 5 && h > 5) {
+                            const key = `${w},${h}`;
+                            dimCount[key] = (dimCount[key] || 0) + 1;
+                        }
+                    });
+
+                    let bestKey = null, bestCount = 0;
+                    for (const [key, count] of Object.entries(dimCount)) {
+                        if (count > bestCount) { bestKey = key; bestCount = count; }
+                    }
+                    if (!bestKey) return;
+
+                    const [cellW, cellH] = bestKey.split(',').map(Number);
+                    const cellRects = allRects.filter(r =>
+                        Math.round(parseFloat(r.getAttribute('width') || 0)) === cellW &&
+                        Math.round(parseFloat(r.getAttribute('height') || 0)) === cellH
+                    );
+
+                    cellRects.sort((a, b) => {
+                        const ay = parseFloat(a.getAttribute('y') || 0);
+                        const by = parseFloat(b.getAttribute('y') || 0);
+                        if (Math.abs(ay - by) > 1) return ay - by;
+                        return parseFloat(a.getAttribute('x') || 0) - parseFloat(b.getAttribute('x') || 0);
+                    });
+
+                    let i = 0;
+                    for (let row = 0; row < BAC.length && i < cellRects.length; row++) {
+                        for (let col = 0; col < BAC[row].length && i < cellRects.length; col++) {
+                            cellRects[i].setAttribute('fill', BACC[BAC[row][col]]);
+                            i++;
+                        }
+                    }
+                }
+
+            </script>
+        </div>
+    </body>
+</html>

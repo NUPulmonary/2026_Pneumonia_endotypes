@@ -1,0 +1,489 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>
+            Pathogen-specific host responses define distinct pneumonia endotypes in the human lung
+            &rarr; DEGs
+        </title>
+        <link rel="stylesheet" href="../main.css" />
+        <style>
+            .body {
+                margin: 0 50px 0 50px;
+                max-width: max-content;
+                font-size: 15px;
+            }
+            .container {
+                /* overflow: auto; */
+                display: flex;
+                align-items: flex-start;
+            }
+            #visualization {
+                flex: 1;
+            }
+            #visualization.empty {
+                /* to avoid jumping. 600 of heatmap - 90 from legend margins */
+                width: 510px;
+                height: 1px;
+            }
+            .side-info {
+                min-width: 550px;
+                margin-left: 50px;
+            }
+        </style>
+        <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    </head>
+    <body class="compact">
+        <div class="nav">
+            <a href="https://sqlifts.fsm.northwestern.edu/public/">Division website</a>
+            &rarr;
+            <a href="../#b"
+                >Pathogen-specific host responses define distinct pneumonia endotypes in the human
+                lung</a
+            >
+            &rarr;
+            <a href="./">DEG explorer</a>
+        </div>
+        <div class="header">
+            <h1>DEG GSEA explorer</h1>
+            <h2><span id="title"></span></h2>
+        </div>
+        <div class="body">
+            <div class="container">
+                <div id="visualization" class="empty"></div>
+
+                <div id="gene-info" class="side-info">
+                    <h3>Active cell information</h3>
+                    <p id="no-cell-selected">
+                        Move mouse over a cell to see details, click to select.
+                    </p>
+                    <div id="cell-info-content" style="margin-bottom: 10px;"></div>
+                    <h3>Leading edge genes</h3>
+                    <div>
+                        Leading edge genes can be significantly
+                        <span class="deg deg-downregulated">DOWNREGULATED</span>, or
+                        <span class="deg deg-upregulated">UPREGULATED</span>, or NOT&nbsp;SIGNIFICANT
+                        in the corresponding comparison.
+                    </div>
+                    <br />
+                    <div class="gene-list" id="genes-content"></div>
+                </div>
+            </div>
+        </div>
+        <script type="module">
+            import * as main from "../main.js";
+            Object.keys(main).forEach((k) => (window[k] = main[k]));
+
+            const TS = Math.floor(Date.now() / 1000);
+
+            // Get comparison parameter from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const comparison = urlParams.get("comparison");
+
+            // Store DEG data for all cell types
+            let degDataMap = new Map();
+
+            // Variable to store stats data
+            let statsData = [];
+
+            // Load the stats data at startup
+            function loadStatsData() {
+                return fetchCsvGz("merged_stats.csv.gz?" + TS);
+            }
+
+            function findStatsForCell(cellType, comparison) {
+                // Find the matching stats record
+                return statsData.find(
+                    (d) => d.cell_type === cellType && d.task === comparison,
+                );
+            }
+
+            // Function to load DEG data for a specific cell type
+            async function loadDEGData(cellType) {
+                const csvUrl = `${encodeURIComponent(comparison.replaceAll('/', '_'))}/${encodeURIComponent(cellType)}_degs.csv.gz`;
+                const data = await fetchCsvGz(csvUrl + "?" + TS);
+                const geneColumn = Object.keys(data[0])[0]; // First column is gene name
+                const degMap = new Map();
+                data.forEach((d) => {
+                    const geneName = d[geneColumn];
+                    if (geneName && +d.padj < 0.05) {
+                        degMap.set(geneName, +d.log2FoldChange);
+                    }
+                });
+                return degMap;
+            }
+
+            // Function to format gene list with styling based on DEG data
+            function formatGeneList(geneString, cellType) {
+                if (!geneString || geneString.trim() === "") {
+                    return "No genes in leading edge";
+                }
+
+                // Format the gene list
+                const genes = geneString.split(/;/).filter((gene) => gene.trim() !== "");
+
+                if (genes.length === 0) {
+                    return "No genes in leading edge";
+                }
+
+                // Get DEG map for this cell type
+                const degMap = degDataMap.get(cellType) || new Map();
+
+                // Style each gene based on its regulation status
+                const styledGenes = genes.map((gene) => {
+                    const geneTrimmed = gene.trim();
+                    const logFC = degMap.get(geneTrimmed);
+
+                    if (!logFC) {
+                        return geneTrimmed; // No styling for genes not in DEG list
+                    }
+
+                    if (logFC < 0) {
+                        return `<span class="deg deg-downregulated">${geneTrimmed}</span>`;
+                    } else {
+                        return `<span class="deg deg-upregulated">${geneTrimmed}</span>`;
+                    }
+
+                    return geneTrimmed;
+                });
+
+                return styledGenes.join(", ");
+            }
+
+            function updateInfoPanel(d) {
+                const cellInfoContent = document.getElementById("cell-info-content");
+                const noSelectionMsg = document.getElementById("no-cell-selected");
+
+                if (!d || !d.value || d.value === "") {
+                    cellInfoContent.innerHTML = "";
+                    noSelectionMsg.style.display = "block";
+                    return;
+                }
+
+                noSelectionMsg.style.display = "none";
+
+                // Find the corresponding stats data
+                const stats = findStatsForCell(d.factor, comparison);
+
+                let comparisonStr = '';
+
+                let task = comparison;
+                let taskSuffix = '';
+                if (task.indexOf('(') > -1) {
+                    taskSuffix = ' ' + task.substring(task.indexOf('('));
+                    task = task.substring(0, task.indexOf('('));
+                }
+                let parts = task.split(" vs. ");
+                if (parts.length == 1) {
+                    let stats = findStatsForCell('CD4 T cells', comparison);
+                    parts = [stats.group1, stats.group2];
+                }
+
+                comparisonStr += parts[0] + ` (<span class='deg-downregulated' style='font-weight: normal'><i>n</i> = ${formatNumber(stats.group1_count)}</span>)`;
+                comparisonStr += ' vs. ';
+                comparisonStr += parts[1] + ` (<span class='deg-upregulated' style='font-weight: normal'><i>n</i> = ${formatNumber(stats.group2_count)}</span>)`;
+
+                let infoContent = `<b>Comparison:</b> ${comparisonStr}<br>`;
+                infoContent += `<b>Cell type:</b> ${d.factor}<br>`;
+
+                // Add stats data if available
+                if (stats) {
+                    infoContent += `<b>DEG count:</b>`;
+                    infoContent += ` <span class='deg-downregulated' style='font-weight: normal'>${formatNumber(stats.group1_up)} downregulated</span>,`;
+                    infoContent += ` <span class='deg-upregulated' style='font-weight: normal'>${formatNumber(stats.group2_up)} upregulated</span>.`;
+                }
+
+                cellInfoContent.innerHTML = infoContent;
+            }
+
+            function formatTitle(title) {
+                let task = comparison;
+                let taskSuffix = '';
+                if (task.indexOf('(') > -1) {
+                    taskSuffix = ' ' + task.substring(task.indexOf('('));
+                    task = task.substring(0, task.indexOf('('));
+                }
+                let parts = task.split(" vs. ");
+                if (parts.length == 1) {
+                    let stats = findStatsForCell('CD4 T cells', comparison);
+                    parts = [stats.group1, stats.group2];
+                }
+                return (
+                    parts[0]
+                    + ' (<span class="deg-downregulated">⬇︎</span>)'
+                    + " vs. "
+                    + parts[1]
+                    + ' (<span class="deg-upregulated">⬆︎</span>)'
+                    + taskSuffix
+                );
+            }
+
+            if (!comparison) {
+                document.getElementById("#visualization").innerHTML =
+                    "<p>Error: No comparison specified</p>";
+            } else {
+                // Update page title
+                document.getElementById("title").innerHTML = comparison;
+
+                // Add loading indicator
+                const loadingDiv = d3
+                    .select("#visualization")
+                    .append("div")
+                    .attr("class", "loading").html(`
+                    <div class="loading-spinner"></div>
+                    <div>Loading GSEA data and DEG information...</div>
+                    `);
+
+                // Set up dimensions and margins
+                const dimensions = {
+                    top: 2,
+                    right: 50,
+                    bottom: 120,
+                    left: 220,
+                    width: 600,
+                    height: 800,
+                };
+
+                // Create tooltip div
+                const tooltip = d3
+                    .select("body")
+                    .append("div")
+                    .attr("class", "tooltip")
+                    .style("opacity", 0);
+
+                // CSV URL based on comparison parameter
+                const csvUrl = `${encodeURIComponent(comparison.replaceAll('/', '_'))}_gsea.csv.gz?${TS}`;
+
+                fetchCsvGz(csvUrl)
+                    .then(async function (data) {
+                        // Extract unique terms and cell types
+                        data.forEach((d) => {
+                            if (!GSEA_LIST.includes(d.Term)) {
+                                GSEA_LIST.push(d.Term);
+                            }
+                        });
+                        const terms = GSEA_LIST.map((term) => {
+                            // Strip 'HALLMARK_' prefix from terms
+                            return term.replace(/^HALLMARK_/, "");
+                        });
+                        const cellTypes = [];
+                        for (let cellType of CELL_TYPE_ORDER) {
+                            for (let d of data) {
+                                if (d.cell_type === cellType) {
+                                    cellTypes.push(cellType);
+                                    break;
+                                }
+                            }
+                        }
+                        dimensions.width = cellTypes.length * 25 + dimensions.left + dimensions.right;
+
+                        // Load DEG data for all cell types first
+                        await Promise.all(
+                            cellTypes.map(async (cellType) => {
+                                const degMap = await loadDEGData(cellType);
+                                degDataMap.set(cellType, degMap);
+                            }),
+                        );
+                        statsData = await loadStatsData();
+                        document.getElementById("title").innerHTML = formatTitle(comparison);
+
+                        // Create a matrix for the heatmap data
+                        const matrix = terms.map((term) => {
+                            const row = { Term: term };
+                            cellTypes.forEach((cellType) => {
+                                // Match with original term (which might have HALLMARK_ prefix)
+                                const match = data.find(
+                                    (d) =>
+                                        d.Term.replace(/^HALLMARK_/, "") === term &&
+                                        d.cell_type === cellType,
+                                );
+                                if (match) {
+                                    // Store both padj and NES values
+                                    row[cellType] = {
+                                        padj: +match.padj,
+                                        NES: +match.NES,
+                                        logPadj: +match["-log10(padj)"],
+                                        genes: match["Leading edge"],
+                                    };
+                                } else {
+                                    row[cellType] = "";
+                                }
+                            });
+                            return row;
+                        });
+
+                        function findInMatrix(d) {
+                            for (let i = 0; i < matrix.length; i++) {
+                                if (matrix[i].Term === d.covariate) {
+                                    return matrix[i][d.factor];
+                                }
+                            }
+                        }
+
+                        const colorData = matrix.map((row) => {
+                            let _row = { "": row.Term };
+                            cellTypes.forEach((cellType) => {
+                                _row[cellType] = row[cellType].logPadj;
+                            });
+                            return _row;
+                        });
+                        const pvalData = matrix.map((row) => {
+                            let _row = { "": row.Term };
+                            cellTypes.forEach((cellType) => {
+                                _row[cellType] = row[cellType].padj;
+                            });
+                            return _row;
+                        });
+
+                        // Remove loading indicator
+                        loadingDiv.remove();
+                        d3.select("#visualization").classed("empty", false);
+
+                        // Track selected cell
+                        let selectedCell = null;
+
+                        displayHeatmap(
+                            [colorData, pvalData],
+                            d3.select("#visualization"),
+                            dimensions,
+                            {
+                                colnames: cellTypes,
+                                displayCovariate: processHallmarkName,
+                                logPval: false,
+                                colorScale: (extent) => {
+                                    return d3
+                                        .scaleDiverging()
+                                        .domain([extent[1], 0, extent[0]])
+                                        .interpolator(d3.interpolateRdBu)
+                                        .unknown("#ccc");
+                                },
+                                legend: (extent, width) => {
+                                    const legendColorScale = d3
+                                        .scaleDiverging()
+                                        .domain([extent[0], 0, extent[1]])
+                                        .interpolator(
+                                            d3.interpolateRgbBasis(d3.schemeRdBu[11].reverse()),
+                                        );
+                                    return Legend(legendColorScale, {
+                                        title: "–log10(padj) × sign(NES)",
+                                        width: width,
+                                    });
+                                },
+                                mouseover: (event, d) => {
+                                    if (d.value.colorValue === undefined || isNaN(d.value.colorValue)) {
+                                        return;
+                                    }
+                                    tooltip.transition().duration(200).style("opacity", 0.9);
+
+                                    const cellData = findInMatrix(d);
+
+                                    let tooltipHTML = `
+                <strong>Gene set:</strong> ${processHallmarkName(d.covariate)}<br>
+                <strong>Cell type:</strong> ${d.factor}<br>
+                <strong>NES:</strong> ${formatNumber(cellData.NES.toFixed(2))}<br>
+                <strong>Adjusted <i>p</i>-value:</strong> ${formatNumber(cellData.padj.toFixed(5))}<br>
+                <strong>–log10(padj):</strong> ${formatNumber(cellData.logPadj.toFixed(2))}
+              `;
+
+                                    // Update gene info panel
+                                    d3.select("#genes-content").html(
+                                        formatGeneList(cellData.genes, d.factor),
+                                    );
+
+                                    tooltip
+                                        .html(tooltipHTML)
+                                        .style("left", event.pageX + 10 + "px")
+                                        .style("top", event.pageY - 28 + "px");
+
+                                    updateInfoPanel(d);
+                                },
+                                mouseout: (event, d) => {
+                                    tooltip.transition().duration(500).style("opacity", 0);
+                                    d3.select("#genes-content").html("");
+                                    updateInfoPanel();
+                                },
+                                click: (event, d) => {
+                                    if (d.value.colorValue === undefined || isNaN(d.value.colorValue)) {
+                                        return;
+                                    }
+                                    // Reset previous selection if exists
+                                    if (selectedCell) {
+                                        // Remove the selected info box
+                                        d3.select("#selected-info-box").remove();
+                                    }
+
+                                    // If clicking the same cell, just deselect it
+                                    if (selectedCell && selectedCell.element === event.target) {
+                                        d3.select(selectedCell.element).classed(
+                                            "highlighted",
+                                            false,
+                                        );
+                                        selectedCell = null;
+                                        return;
+                                    }
+
+                                    const val = findInMatrix(d);
+
+                                    // Create a persistent info box above the regular one
+                                    const infoBox = d3
+                                        .select("#gene-info")
+                                        .insert("div", ":first-child")
+                                        .attr("id", "selected-info-box")
+                                        .classed("selected-pathway", true);
+
+                                    // Add close button
+                                    infoBox
+                                        .append("div")
+                                        .style("float", "right")
+                                        .style("cursor", "pointer")
+                                        .style("font-size", "18px")
+                                        .style("color", "#666")
+                                        .text("✖")
+                                        .on("click", function () {
+                                            // Reset cell appearance
+                                            d3.select(selectedCell.element).classed(
+                                                "highlighted",
+                                                false,
+                                            );
+
+                                            // Remove info box
+                                            d3.select("#selected-info-box").remove();
+                                            selectedCell = null;
+                                        });
+
+                                    infoBox
+                                        .append("h3")
+                                        .style("margin-top", "0")
+                                        .style("margin-bottom", "10px")
+                                        .style("border-bottom", "1px solid var(--border)")
+                                        .text("Selected heatmap cell");
+
+                                    infoBox.append("p").classed("selected-pathway-info", true)
+                                        .html(`
+                                            <b>Pathway</b>: ${processHallmarkName(d.covariate)}<br/>
+                                            <b>Cell type</b>: ${d.factor}<br/>
+                                            <b>Normalized enrichment score</b>: ${formatNumber(val.NES.toFixed(2))}<br/>
+                                            <b>Adjusted <i>p</i>-value</b>: ${formatNumber(val.padj.toFixed(5))}<br/>
+                                            <b>Genes</b><span class="note"> (in order of enrichment by MOFA weights)</span>:
+                                        `);
+
+                                    // Add gene list
+                                    infoBox
+                                        .append("div")
+                                        .classed("gene-list", true)
+                                        .html(formatGeneList(val.genes, d.factor));
+
+                                    selectedCell = { element: event.target, data: d };
+                                },
+                            },
+                        );
+                    })
+                    .catch((error) => {
+                        console.error("Error loading CSV:", error);
+                        document.getElementById("visualization").innerHTML =
+                            `<p>Error loading data: ${error.message}</p>`;
+                    });
+            }
+        </script>
+    </body>
+</html>

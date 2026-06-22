@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en-US">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width" />
+        <title>
+            Pathogen-specific host responses define distinct pneumonia endotypes in the human lung
+        </title>
+        <link rel="stylesheet" href="main.css" />
+    </head>
+    <body>
+        <div class="nav">
+            <a href="https://sqlifts.fsm.northwestern.edu/public/">Division website</a>
+        </div>
+        <div class="header">
+            <h1>
+                Pathogen-specific host responses define distinct pneumonia endotypes in the human
+                lung
+            </h1>
+            <div class="abstract">
+                <h2>Abstract</h2>
+                <p>
+                    Pneumonia is the leading cause of death from infectious disease worldwide. The
+                    diagnosis and treatment of patients with pneumonia lag behind other major
+                    conditions, relying on syndromic definitions that lack molecular resolution and
+                    ignore underlying endotypes. We sought to test the hypothesis that dynamic
+                    pathogen-specific host responses in the alveolar space represent distinct
+                    pneumonia endotypes linked to different clinical features and outcomes. We
+                    prospectively enrolled a cohort of 690 patients (including immunocompromised
+                    patients) with known or suspected pneumonia receiving mechanical ventilation in
+                    whom the etiology of pneumonia was determined by gold-standard analysis of
+                    distal lung fluid obtained by bronchoalveolar lavage (BAL) combined with
+                    clinical adjudication. From these patients, we analyzed 792 BAL fluid samples,
+                    including 310 serial samples, using flow cytometry (482 patients) and
+                    single-cell RNA-sequencing (170 patients) and extracted daily clinical data from
+                    the electronic health record (> 15,000 patient-days). We used machine learning
+                    models to identify pathogen-specific host responses in the transcriptome of
+                    alveolar immune cells that were associated with changes in alveolar cell
+                    abundance and clinical features. Our results suggest that therapeutic strategies
+                    for pneumonia should be individualized to specific host-pathogen interactions.
+                </p>
+            </div>
+        </div>
+        <div class="body">
+            <div class="section">
+                <h2>Resources</h2>
+                <ol>
+                    <li>
+                        <div class="li-flex">
+                            <p>
+                                Electronic health record dataset for the published SCRIPT cohort
+                                (690 patients, 15,287 patient ICU-days) is available
+                                <a
+                                    href="https://physionet.org/content/script-carpediem-dataset/1.8.0/"
+                                    target="_blank"
+                                    >at Physionet</a
+                                >.
+                            </p>
+                            <a
+                                href="https://physionet.org/content/script-carpediem-dataset/1.8.0/"
+                                target="_blank"
+                                ><button class="up">EHR data</button></a
+                            >
+                        </div>
+                    </li>
+                    <li>
+                        <div class="li-flex">
+                            <p>
+                                Single-cell RNA-sequencing data
+                                <a
+                                    href="scrna-seq/?ds=01_downsampled"
+                                    target="_blank"
+                                    >explorer</a
+                                >
+                                from 301 BAL samples from 205
+                                patients or volunteers, annotated with 28 cell types
+                                <span class="note"
+                                    >(10% of cells randomly downsampled for speed)</span
+                                >.
+                            </p>
+                            <a
+                                href="scrna-seq/?ds=01_downsampled"
+                                target="_blank"
+                                ><button class="up">scRNA-seq explorer</button></a
+                            >
+                        </div>
+                    </li>
+                    <li>
+                        <div class="li-flex">
+                            <p>
+                                Multi-omic factor analysis (MOFA)
+                                <a href="explore_mofa/" target="_blank">explorer</a> corresponding
+                                to Figure 3 and Extended Data Figure S5. <a href="explore_mofa/tutorial.html" target="_blank">
+                                Video tutorial</a> for using the MOFA explorer.
+                            </p>
+                            <a href="explore_mofa/" target="_blank"
+                                ><button class="up">MOFA explorer</button></a
+                            >
+                        </div>
+                    </li>
+                    <li>
+                        <div class="li-flex">
+                            <p>
+                                Differential gene expression analysis
+                                <a href="explore_dea/" target="_blank">explorer</a> corresponding to
+                                Figure 4 and Extended Data Figure S6. <a href="explore_dea/tutorial.html" target="_blank">
+                                Video tutorial</a> for using the DEG explorer.
+                            </p>
+                            <a href="explore_dea/" target="_blank"
+                                ><button class="up">DEG explorer</button></a
+                            >
+                        </div>
+                    </li>
+                    <li>
+                        <div class="li-flex">
+                            <p>
+                                Gene set variation analysis
+                                <a href="explore_gsva/" target="_blank">explorer</a> for all
+                                pseudobulk samples in the cohort. <a href="explore_gsva/tutorial.html" target="_blank">
+                                Video tutorial</a> for using the GSVA explorer.
+                            </p>
+                            <a href="explore_gsva/" target="_blank"
+                                ><button class="up">GSVA explorer</button></a
+                            >
+                        </div>
+                    </li>
+                    <li>
+                        <div class="li-flex">
+                            <p>
+                                Data explorer tutorials.
+                            </p>
+                            <a href="explore_mofa/tutorial.html" target="_blank"
+                                ><button class="up">Supplementary Video 1</button></a>
+                            <a href="explore_dea/tutorial.html" target="_blank"
+                                ><button class="up">Supplementary Video 2</button></a>
+                            <a href="explore_gsva/tutorial.html" target="_blank"
+                                ><button class="up">Supplementary Video 3</button></a>
+                    </li>
+                </ol>
+            </div>
+        </div>
+        <script type="text/javascript">
+            if (window.location.hash === "#b") {
+                Array.from(document.getElementsByTagName("a")).forEach((a) =>
+                    a.removeAttribute("target"),
+                );
+                window.location.hash = '';
+            }
+        </script>
+    </body>
+</html>

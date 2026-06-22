@@ -1,0 +1,337 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>
+            Pathogen-specific host responses define distinct pneumonia endotypes in the human lung
+            &rarr; MOFA
+        </title>
+        <link rel="stylesheet" href="../main.css" />
+        <style>
+            .body {
+                margin: 0 50px 0 50px;
+                max-width: max-content;
+                font-size: 15px;
+            }
+            .container {
+                /* overflow: auto; */
+                display: flex;
+                align-items: flex-start;
+            }
+            #visualization {
+                flex: 1;
+            }
+            #visualization.empty {
+                /* to avoid jumping. 600 of heatmap - 90 from legend margins */
+                width: 510px;
+                height: 1px;
+            }
+        </style>
+        <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    </head>
+    <body class="compact">
+        <div class="nav">
+            <a href="https://sqlifts.fsm.northwestern.edu/public/">Division website</a>
+            &rarr;
+            <a href="../#b"
+                >Pathogen-specific host responses define distinct pneumonia endotypes in the human
+                lung</a
+            >
+            &rarr;
+            <a href="./">MOFA explorer</a>
+        </div>
+        <div class="header">
+            <h1>MOFA GSEA explorer<span id="title"></span></h1>
+        </div>
+        <div class="body">
+            <div class="container">
+                <div id="visualization" class="empty"></div>
+
+                <div id="gene-info" class="side-info">
+                    <h3>Leading edge genes</h3>
+                    <div>Move mouse to view, click heatmap cell to select.</div>
+                    <br />
+                    <div class="gene-list" id="genes-content"></div>
+                </div>
+            </div>
+        </div>
+        <script type="module">
+            import * as main from "../main.js";
+            Object.keys(main).forEach((k) => (window[k] = main[k]));
+
+            const FACTOR_ORDER = [7, 10, 9, 6, 4, 1, 5, 3, 2, 8];
+            const TS = Math.floor(Date.now() / 1000);
+
+            // Get comparison parameter from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const factorId = parseInt(urlParams.get("factor").split(" ")[1]);
+            const oldFactorId = `factor_${FACTOR_ORDER[factorId - 1]}`;
+
+            if (!factorId) {
+                document.getElementById("visualization").innerHTML =
+                    "<p>Error: No factor specified</p>";
+            } else {
+                // Update page title
+                document.getElementById("title").textContent = `: factor ${factorId}`;
+                d3.select('.header').append('div').classed('abstract', true)
+                .append('p').text(`Rotated for: ${MOFA_ROTATIONS[factorId - 1]}`);
+
+                // Add loading indicator
+                const loadingDiv = d3
+                    .select("#visualization")
+                    .append("div")
+                    .attr("class", "loading").html(`
+                    <div class="loading-spinner"></div>
+                    <div>Loading GSEA data and DEG information...</div>
+                    `);
+
+                // Set up dimensions and margins
+                const dimensions = {
+                    top: 2,
+                    right: 150,
+                    bottom: 100,
+                    left: 220,
+                    width: 600,
+                    height: 800,
+                };
+
+                // Create tooltip div
+                const tooltip = d3
+                    .select("body")
+                    .append("div")
+                    .attr("class", "tooltip")
+                    .style("opacity", 0);
+
+                // CSV URL based on comparison parameter
+                const csvUrl = `05_mofa_gsea.csv?${TS}`;
+
+                // Load CSV data
+                d3.csv(csvUrl)
+                    .then(function (data) {
+                        // return;
+                        data = data.filter((d) => d.factor === oldFactorId);
+
+                        // Extract unique terms and cell types
+                        data.forEach((d) => {
+                            if (!GSEA_LIST.includes(d.Term)) {
+                                GSEA_LIST.push(d.Term);
+                            }
+                        });
+                        const terms = GSEA_LIST.map((term) => {
+                            // Strip 'HALLMARK_' prefix from terms
+                            return term.replace(/^HALLMARK_/, "");
+                        });
+                        // const cellTypes = Array.from(new Set(data.map(d => d.cell_type)));
+                        // Manually order cell types
+                        const cellTypes = [
+                            "NUPR1+ AM",
+                            "MRC1+C1QA+ AM",
+                            "MRC1+C1QA– AM",
+                            "Classical monocytes-2 IL1B",
+                            "CD4 T cells",
+                            "CD8 T cells",
+                            "γδT cells",
+                            "DC2",
+                        ];
+
+                        // Create a matrix for the heatmap data
+                        const matrix = terms.map((term) => {
+                            const row = { Term: term };
+                            cellTypes.forEach((cellType) => {
+                                // Match with original term (which might have HALLMARK_ prefix)
+                                const match = data.find(
+                                    (d) =>
+                                        d.Term.replace(/^HALLMARK_/, "") === term &&
+                                        d.cell_type === cellType,
+                                );
+                                if (match) {
+                                    // Store both padj and NES values
+                                    row[cellType] = {
+                                        padj: +match["padj"],
+                                        NES: +match.NES,
+                                        genes: match["Leading edge"],
+                                    };
+                                } else {
+                                    row[cellType] = "";
+                                }
+                            });
+                            return row;
+                        });
+
+                        // Find minimum non-zero padj, and set zero padj to this value
+                        const allPadjValues = matrix.flatMap((d) =>
+                            cellTypes.map((cellType) => d[cellType].padj).filter((v) => v > 0),
+                        );
+                        const minNonZeroPadj = d3.min(allPadjValues);
+
+                        matrix.forEach((row) => {
+                            cellTypes.forEach((cellType) => {
+                                if (row[cellType] === "") return;
+                                if (row[cellType].padj === 0) {
+                                    row[cellType].padj = minNonZeroPadj * 0.1;
+                                }
+                                row[cellType].logPadj = -Math.log10(row[cellType].padj);
+                                if (row[cellType].NES < 0) {
+                                    row[cellType].logPadj = -row[cellType].logPadj;
+                                }
+                            });
+                        });
+                        function findInMatrix(d) {
+                            for (let i = 0; i < matrix.length; i++) {
+                                if (matrix[i].Term === d.covariate) {
+                                    return matrix[i][d.factor];
+                                }
+                            }
+                        }
+
+                        const colorData = matrix.map((row) => {
+                            let _row = { "": row.Term };
+                            cellTypes.forEach((cellType) => {
+                                _row[cellType] = row[cellType].logPadj;
+                            });
+                            return _row;
+                        });
+                        const pvalData = matrix.map((row) => {
+                            let _row = { "": row.Term };
+                            cellTypes.forEach((cellType) => {
+                                _row[cellType] = row[cellType].padj;
+                            });
+                            return _row;
+                        });
+
+                        // Remove loading indicator
+                        loadingDiv.remove();
+                        d3.select("#visualization").classed("empty", false);
+
+                        // Track selected cell
+                        let selectedCell = null;
+
+                        displayHeatmap(
+                            [colorData, pvalData],
+                            d3.select("#visualization"),
+                            dimensions,
+                            {
+                                colnames: cellTypes,
+                                displayCovariate: processHallmarkName,
+                                logPval: false,
+                                colorScale: (extent) => {
+                                    return d3
+                                        .scaleDiverging()
+                                        .domain([extent[1], 0, extent[0]])
+                                        .interpolator(d3.interpolateRdBu)
+                                        .unknown("#ccc");
+                                },
+                                legend: (extent, width) => {
+                                    const legendColorScale = d3
+                                        .scaleDiverging()
+                                        .domain([extent[0], 0, extent[1]])
+                                        .interpolator(
+                                            d3.interpolateRgbBasis(d3.schemeRdBu[11].reverse()),
+                                        );
+                                    return Legend(legendColorScale, {
+                                        title: "–log10(padj) × sign(NES)",
+                                        width: width,
+                                    });
+                                },
+                                mouseover: (event, d) => {
+                                    tooltip.transition().duration(200).style("opacity", 0.9);
+
+                                    const cellData = findInMatrix(d);
+
+                                    let tooltipHTML = `
+                <strong>Gene set:</strong> ${processHallmarkName(d.covariate)}<br>
+                <strong>Cell type:</strong> ${d.factor}<br>
+                <strong>NES:</strong> ${formatNumber(cellData.NES.toFixed(2))}<br>
+                <strong>padj:</strong> ${formatNumber(cellData.padj.toFixed(5))}<br>
+                <strong>–log10(padj):</strong> ${cellData.logPadj ? formatNumber(cellData.logPadj.toFixed(2)) : "N/A"}
+              `;
+
+                                    // Update gene info panel
+                                    d3.select("#genes-content").html(formatGeneList(cellData.genes));
+
+                                    tooltip
+                                        .html(tooltipHTML)
+                                        .style("left", event.pageX + 10 + "px")
+                                        .style("top", event.pageY - 28 + "px");
+                                },
+                                mouseout: (event, d) => {
+                                    tooltip.transition().duration(500).style("opacity", 0);
+                                    d3.select("#genes-content").html("");
+                                },
+                                click: (event, d) => {
+                                    // Reset previous selection if exists
+                                    if (selectedCell) {
+                                        // Remove the selected info box
+                                        d3.select("#selected-info-box").remove();
+                                    }
+
+                                    // If clicking the same cell, just deselect it
+                                    if (selectedCell && selectedCell.element === event.target) {
+                                        d3.select(selectedCell.element).classed("highlighted", false);
+                                        selectedCell = null;
+                                        return;
+                                    }
+
+                                    const val = findInMatrix(d);
+
+                                    // Create a persistent info box above the regular one
+                                    const infoBox = d3
+                                        .select("#gene-info")
+                                        .insert("div", ":first-child")
+                                        .attr("id", "selected-info-box")
+                                        .classed('selected-pathway', true);
+
+                                    // Add close button
+                                    infoBox
+                                        .append("div")
+                                        .style("float", "right")
+                                        .style("cursor", "pointer")
+                                        .style("font-size", "18px")
+                                        .style("color", "#666")
+                                        .text("✖")
+                                        .on("click", function () {
+                                            // Reset cell appearance
+                                            d3.select(selectedCell.element).classed("highlighted", false);
+
+                                            // Remove info box
+                                            d3.select("#selected-info-box").remove();
+                                            selectedCell = null;
+                                        });
+
+                                    infoBox
+                                        .append("h3")
+                                        .style("margin-top", "0")
+                                        .style("margin-bottom", "10px")
+                                        .style("border-bottom", "1px solid var(--border)")
+                                        .text("Selected pathway");
+
+                                    infoBox.append('p')
+                                        .classed('selected-pathway-info', true)
+                                        .html(`
+                                            <b>Pathway</b>: ${processHallmarkName(d.covariate)}<br/>
+                                            <b>Cell type</b>: ${d.factor}<br/>
+                                            <b>Normalized enrichment score</b>: ${formatNumber(val.NES.toFixed(2))}<br/>
+                                            <b>Adjusted <i>p</i>-value</b>: ${formatNumber(val.padj.toFixed(5))}<br/>
+                                            <b>Genes</b><span class="note"> (in order of enrichment by MOFA weights)</span>:
+                                        `);
+
+                                    // Add gene list
+                                    infoBox
+                                        .append("div")
+                                        .classed('gene-list', true)
+                                        .html(formatGeneList(val.genes));
+
+                                    selectedCell = { element: event.target, data: d };
+                                },
+                            },
+                        );
+                    })
+                    .catch((error) => {
+                        console.error("Error loading CSV:", error);
+                        document.getElementById("container").innerHTML =
+                            `<p>Error loading data: ${error.message}</p>`;
+                    });
+            }
+        </script>
+    </body>
+</html>
